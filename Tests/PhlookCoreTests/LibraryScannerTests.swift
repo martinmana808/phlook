@@ -26,6 +26,18 @@ struct LibraryScannerTests {
         #expect(!items.contains { $0.path.hasSuffix(".txt") })
     }
 
+    @Test func scanSkipsHiddenPhlookCache() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try TestFixtures.writeJPEG(at: dir.appendingPathComponent("real.jpg"), width: 10, height: 10)
+        let cache = dir.appendingPathComponent(".phlook/thumbnails")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try TestFixtures.writeJPEG(at: cache.appendingPathComponent("abc_160.png"), width: 8, height: 8)
+        let items = try LibraryScanner(root: dir).scan()
+        #expect(items.contains { $0.path.hasSuffix("real.jpg") })
+        #expect(!items.contains { $0.path.contains(".phlook") })
+    }
+
     @Test func scanClassifiesVideoByExtension() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

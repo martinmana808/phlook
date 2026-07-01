@@ -7,6 +7,7 @@ public final class IndexingService {
 
     public init(root: URL) {
         self.root = root
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         self.index = try! MediaIndex(dbPath: root.appendingPathComponent("phlook.db").path)
         self.thumbnails = ThumbnailCache(cacheDir: root.appendingPathComponent(".phlook/thumbnails"))
     }

@@ -12,7 +12,10 @@ public struct LibraryScanner {
     public func scan() throws -> [MediaItem] {
         var results: [MediaItem] = []
         let keys: [URLResourceKey] = [.isRegularFileKey, .creationDateKey]
-        guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { return [] }
+        guard let e = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles]) else { return [] }
         for case let url as URL in e {
             let ext = url.pathExtension.lowercased()
             let isImage = Self.imageExts.contains(ext)
