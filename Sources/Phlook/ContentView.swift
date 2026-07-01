@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct ContentView: View {
+    @StateObject private var vm = LibraryViewModel()
     var body: some View {
-        Text("PHLOOK").font(.largeTitle)
+        MicroGridView(vm: vm)
+            .onAppear { vm.load() }
     }
 }
