@@ -1,6 +1,5 @@
 import Foundation
 import ImageIO
-import AVFoundation
 import CryptoKit
 
 public struct LibraryScanner {
@@ -20,8 +19,9 @@ public struct LibraryScanner {
             let isVideo = Self.videoExts.contains(ext)
             guard isImage || isVideo else { continue }
             if url.lastPathComponent.hasPrefix("._") { continue }
-            let (w, h, taken) = isImage ? Self.imageMeta(url) : Self.videoMeta(url)
-            let fileDate = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? nil
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let (w, h, taken): (Int?, Int?, Date?) = isImage ? Self.imageMeta(url) : (nil, nil, nil)
+            let fileDate = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate
             results.append(MediaItem(
                 path: url.path, hash: Self.quickHash(url),
                 dateTaken: taken ?? fileDate,
@@ -30,6 +30,13 @@ public struct LibraryScanner {
         }
         return results
     }
+
+    private static let exifDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
 
     static func imageMeta(_ url: URL) -> (Int?, Int?, Date?) {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -40,17 +47,9 @@ public struct LibraryScanner {
         var date: Date?
         if let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any],
            let s = exif[kCGImagePropertyExifDateTimeOriginal] as? String {
-            let f = DateFormatter()
-            f.dateFormat = "yyyy:MM:dd HH:mm:ss"
-            date = f.date(from: s)
+            date = Self.exifDateFormatter.date(from: s)
         }
         return (w, h, date)
-    }
-
-    static func videoMeta(_ url: URL) -> (Int?, Int?, Date?) {
-        let asset = AVURLAsset(url: url)
-        let size = asset.tracks(withMediaType: .video).first?.naturalSize
-        return (size.map { Int($0.width) }, size.map { Int($0.height) }, asset.creationDate?.dateValue)
     }
 
     static func quickHash(_ url: URL) -> String? {

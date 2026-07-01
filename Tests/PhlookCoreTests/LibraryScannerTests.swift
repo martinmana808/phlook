@@ -25,4 +25,15 @@ struct LibraryScannerTests {
         let items = try LibraryScanner(root: makeRoot()).scan()
         #expect(!items.contains { $0.path.hasSuffix(".txt") })
     }
+
+    @Test func scanClassifiesVideoByExtension() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // Non-encoded .mov: assert classification + that a non-media video file doesn't crash scan.
+        try Data([0x00, 0x00, 0x00, 0x18]).write(to: dir.appendingPathComponent("clip.mov"))
+        let items = try LibraryScanner(root: dir).scan()
+        let video = try #require(items.first { $0.path.hasSuffix("clip.mov") })
+        #expect(video.fileType == "video")
+        #expect(video.hash != nil)
+    }
 }
