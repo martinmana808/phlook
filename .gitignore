@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Node
+node_modules/
+dist/
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# App
+app/dist
+app/release
+
+# Swift / SPM
+.build/
+*.xcodeproj
+*.xcworkspace
+
+# Rebuildable index + caches (never a source of truth)
+phlook.db
+*.db
+.phlook/
+
+# Large derived artifacts
+metadata_audit.csv
