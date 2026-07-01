@@ -18,4 +18,13 @@ struct ThumbnailCacheTests {
         let again = await cache.thumbnailURL(for: item, size: 128)
         #expect(unwrapped == again)  // cache hit → same path
     }
+
+    @Test func nilHashReturnsNil() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let cache = ThumbnailCache(cacheDir: root.appendingPathComponent("thumbs"))
+        let item = MediaItem(path: "/nonexistent.jpg", hash: nil, dateTaken: nil,
+                             fileType: "image", width: 1, height: 1, lastScanned: Date())
+        let url = await cache.thumbnailURL(for: item, size: 128)
+        #expect(url == nil)
+    }
 }

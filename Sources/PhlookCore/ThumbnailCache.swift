@@ -10,7 +10,8 @@ public final class ThumbnailCache {
     }
 
     public func thumbnailURL(for item: MediaItem, size: Int) async -> URL? {
-        let key = "\(item.hash ?? UUID().uuidString)_\(size).png"
+        guard let hash = item.hash else { return nil }
+        let key = "\(hash)_\(size).png"
         let dest = cacheDir.appendingPathComponent(key)
         if FileManager.default.fileExists(atPath: dest.path) { return dest }
 
@@ -24,7 +25,7 @@ public final class ThumbnailCache {
               let bitmap = NSBitmapImageRep(data: tiff),
               let png = bitmap.representation(using: .png, properties: [:])
         else { return nil }
-        try? png.write(to: dest)
+        guard (try? png.write(to: dest)) != nil else { return nil }
         return dest
     }
 }
