@@ -37,8 +37,7 @@ public final class MediaIndex {
                 existing.lastScanned = item.lastScanned
                 try existing.update(db)
             } else {
-                var new = item
-                try new.insert(db)
+                try item.insert(db)
             }
         }
     }
