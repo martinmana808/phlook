@@ -14,3 +14,7 @@ test:
 
 clean:
 	swift package clean
+
+# Run a single test/suite by name: make test-one NAME=SomeTests
+test-one:
+	swift test -Xswiftc -F -Xswiftc $(CLT_FPATH) --filter $(NAME)

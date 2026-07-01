@@ -18,7 +18,9 @@
 - **View-only:** v1 MUST NOT modify, move, rename, or delete any original media file. Metadata is read-only.
 - **DB schema compatibility:** the `files` table matches the existing `phlook.db` schema; do not drop/rename existing tables (`files`, `ocr_data`, `embeddings`).
 - **No network:** the app makes zero network calls.
-- **Tests generate their own fixtures** in temp directories (no committed binary fixtures), so `swift test` is hermetic.
+- **Tests generate their own fixtures** in temp directories (no committed binary fixtures), so the suite is hermetic.
+- **Test framework:** **swift-testing** (`import Testing`, `struct` suites, `@Test func`, `#expect(...)`, `try #require(...)`) — NOT XCTest, which is absent from Command Line Tools. Test files also `import Foundation`.
+- **Running tests:** full suite `make test`; single suite `make test-one NAME=<SuiteName>`. (These wrap `swift test` with the `-Xswiftc -F <CLT frameworks>` flag that swift-testing needs on CLT-only machines. Never rely on bare `swift test` — it silently discovers 0 tests here.) `Package.swift` + `Makefile` from Task 1 already encode this.
 
 ---
 
@@ -149,42 +151,47 @@ git commit -m "feat: scaffold Phlook SPM package (app + PhlookCore + tests)"
 
 `Tests/PhlookCoreTests/MediaIndexTests.swift`:
 ```swift
-import XCTest
+import Testing
+import Foundation
 @testable import PhlookCore
 
-final class MediaIndexTests: XCTestCase {
+struct MediaIndexTests {
     func makeTempIndex() throws -> MediaIndex {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return try MediaIndex(dbPath: dir.appendingPathComponent("phlook.db").path)
     }
 
-    func testUpsertAndFetch() throws {
+    @Test func upsertAndFetch() throws {
         let index = try makeTempIndex()
         let item = MediaItem(path: "/a/b/2024-01-02_03-04-05_IMG.heic", hash: "abc",
                              dateTaken: Date(timeIntervalSince1970: 1_700_000_000),
                              fileType: "image", width: 100, height: 200, lastScanned: Date())
         try index.upsert(item)
-        XCTAssertEqual(try index.count(), 1)
-        XCTAssertEqual(try index.item(forPath: item.path)?.width, 100)
+        let count = try index.count()
+        #expect(count == 1)
+        let fetched = try index.item(forPath: item.path)
+        #expect(fetched?.width == 100)
     }
 
-    func testUpsertIsIdempotentOnPath() throws {
+    @Test func upsertIsIdempotentOnPath() throws {
         let index = try makeTempIndex()
         var item = MediaItem(path: "/x.heic", hash: "1", dateTaken: nil,
                              fileType: "image", width: 1, height: 1, lastScanned: Date())
         try index.upsert(item)
         item.width = 999
         try index.upsert(item)
-        XCTAssertEqual(try index.count(), 1)
-        XCTAssertEqual(try index.item(forPath: "/x.heic")?.width, 999)
+        let count = try index.count()
+        #expect(count == 1)
+        let fetched = try index.item(forPath: "/x.heic")
+        #expect(fetched?.width == 999)
     }
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `swift test --filter MediaIndexTests`
+Run: `make test-one NAME=MediaIndexTests`
 Expected: FAIL — `MediaIndex`/`MediaItem` undefined (compile error).
 
 - [ ] **Step 3: Write the model**
@@ -310,7 +317,7 @@ public final class MediaIndex {
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `swift test --filter MediaIndexTests`
+Run: `make test-one NAME=MediaIndexTests`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -363,10 +370,11 @@ public enum TestFixtures {
 
 `Tests/PhlookCoreTests/LibraryScannerTests.swift`:
 ```swift
-import XCTest
+import Testing
+import Foundation
 @testable import PhlookCore
 
-final class LibraryScannerTests: XCTestCase {
+struct LibraryScannerTests {
     func makeRoot() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -375,26 +383,26 @@ final class LibraryScannerTests: XCTestCase {
         return dir
     }
 
-    func testScanFindsImageWithDimensions() throws {
+    @Test func scanFindsImageWithDimensions() throws {
         let items = try LibraryScanner(root: makeRoot()).scan()
-        let image = try XCTUnwrap(items.first { $0.path.hasSuffix("sample.jpg") })
-        XCTAssertEqual(image.fileType, "image")
-        XCTAssertEqual(image.width, 64)
-        XCTAssertEqual(image.height, 48)
-        XCTAssertNotNil(image.hash)
-        XCTAssertNotNil(image.dateTaken) // falls back to file creation date
+        let image = try #require(items.first { $0.path.hasSuffix("sample.jpg") })
+        #expect(image.fileType == "image")
+        #expect(image.width == 64)
+        #expect(image.height == 48)
+        #expect(image.hash != nil)
+        #expect(image.dateTaken != nil) // falls back to file creation date
     }
 
-    func testScanIgnoresNonMedia() throws {
+    @Test func scanIgnoresNonMedia() throws {
         let items = try LibraryScanner(root: makeRoot()).scan()
-        XCTAssertFalse(items.contains { $0.path.hasSuffix(".txt") })
+        #expect(!items.contains { $0.path.hasSuffix(".txt") })
     }
 }
 ```
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `swift test --filter LibraryScannerTests`
+Run: `make test-one NAME=LibraryScannerTests`
 Expected: FAIL — `LibraryScanner` undefined.
 
 - [ ] **Step 4: Write the scanner**
@@ -471,7 +479,7 @@ public struct LibraryScanner {
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `swift test --filter LibraryScannerTests`
+Run: `make test-one NAME=LibraryScannerTests`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -497,11 +505,12 @@ git commit -m "feat: LibraryScanner extracts media metadata + quick hash"
 
 `Tests/PhlookCoreTests/ThumbnailCacheTests.swift`:
 ```swift
-import XCTest
+import Testing
+import Foundation
 @testable import PhlookCore
 
-final class ThumbnailCacheTests: XCTestCase {
-    func testGeneratesAndCaches() async throws {
+struct ThumbnailCacheTests {
+    @Test func generatesAndCaches() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let jpeg = root.appendingPathComponent("pic.jpg")
@@ -511,17 +520,17 @@ final class ThumbnailCacheTests: XCTestCase {
         let item = MediaItem(path: jpeg.path, hash: "deadbeef", dateTaken: nil,
                              fileType: "image", width: 200, height: 200, lastScanned: Date())
         let url = await cache.thumbnailURL(for: item, size: 128)
-        let unwrapped = try XCTUnwrap(url)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: unwrapped.path))
+        let unwrapped = try #require(url)
+        #expect(FileManager.default.fileExists(atPath: unwrapped.path))
         let again = await cache.thumbnailURL(for: item, size: 128)
-        XCTAssertEqual(unwrapped, again)  // cache hit → same path
+        #expect(unwrapped == again)  // cache hit → same path
     }
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `swift test --filter ThumbnailCacheTests`
+Run: `make test-one NAME=ThumbnailCacheTests`
 Expected: FAIL — `ThumbnailCache` undefined.
 
 - [ ] **Step 3: Write the cache**
@@ -566,7 +575,7 @@ public final class ThumbnailCache {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `swift test --filter ThumbnailCacheTests`
+Run: `make test-one NAME=ThumbnailCacheTests`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -592,10 +601,11 @@ git commit -m "feat: on-disk thumbnail cache via QuickLook"
 
 `Tests/PhlookCoreTests/IndexingServiceTests.swift`:
 ```swift
-import XCTest
+import Testing
+import Foundation
 @testable import PhlookCore
 
-final class IndexingServiceTests: XCTestCase {
+struct IndexingServiceTests {
     func makeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -604,23 +614,25 @@ final class IndexingServiceTests: XCTestCase {
         return root
     }
 
-    func testReindexPopulatesAndRebuilds() throws {
+    @Test func reindexPopulatesAndRebuilds() throws {
         let root = try makeRoot()
         let service = IndexingService(root: root)
         let count = try service.reindex()
-        XCTAssertEqual(count, 2)
-        XCTAssertEqual(try service.items().count, 2)
+        #expect(count == 2)
+        let itemCount = try service.items().count
+        #expect(itemCount == 2)
 
         // Rebuild guarantee: delete the DB, reindex, identical count.
         try FileManager.default.removeItem(at: root.appendingPathComponent("phlook.db"))
-        XCTAssertEqual(try IndexingService(root: root).reindex(), 2)
+        let rebuilt = try IndexingService(root: root).reindex()
+        #expect(rebuilt == 2)
     }
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `swift test --filter IndexingServiceTests`
+Run: `make test-one NAME=IndexingServiceTests`
 Expected: FAIL — `IndexingService` undefined.
 
 - [ ] **Step 3: Write the service**
@@ -657,7 +669,7 @@ Note: `reindex()` will also index the `phlook.db`? No — the scanner only accep
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `swift test --filter IndexingServiceTests`
+Run: `make test-one NAME=IndexingServiceTests`
 Expected: PASS (including the rebuild guarantee).
 
 - [ ] **Step 5: Commit**
