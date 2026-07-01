@@ -18,3 +18,11 @@ clean:
 # Run a single test/suite by name: make test-one NAME=SomeTests
 test-one:
 	swift test -Xswiftc -F -Xswiftc $(CLT_FPATH) --filter $(NAME)
+
+# Build a double-clickable Phlook.app bundle
+app:
+	./scripts/bundle-app.sh release
+
+# Build + open the app bundle
+run-app: app
+	open ./Phlook.app

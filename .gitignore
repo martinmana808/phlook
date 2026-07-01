@@ -30,3 +30,6 @@ phlook.db
 
 # Large derived artifacts
 metadata_audit.csv
+
+# Built app bundle
+Phlook.app/

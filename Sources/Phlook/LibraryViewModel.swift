@@ -4,6 +4,7 @@ import PhlookCore
 @MainActor
 final class LibraryViewModel: ObservableObject {
     @Published var items: [MediaItem] = []
+    @Published var isIndexing = false
     let service: IndexingService
 
     init() {
@@ -14,10 +15,19 @@ final class LibraryViewModel: ObservableObject {
 
     func load() {
         let service = self.service
+        isIndexing = true
         Task.detached {
+            // 1. Show whatever is already indexed immediately — instant on relaunch.
+            let cached = (try? service.items()) ?? []
+            await MainActor.run { self.items = cached }
+
+            // 2. Refresh the index in the background, then update the grid.
             _ = try? service.reindex()
-            let items = (try? service.items()) ?? []
-            await MainActor.run { self.items = items }
+            let fresh = (try? service.items()) ?? []
+            await MainActor.run {
+                self.items = fresh
+                self.isIndexing = false
+            }
         }
     }
 
