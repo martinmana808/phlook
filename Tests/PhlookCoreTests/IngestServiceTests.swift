@@ -145,6 +145,23 @@ struct IngestServiceTests {
         #expect(FileManager.default.fileExists(atPath: w.staging.appendingPathComponent("IMG_1.jpg").path))
     }
 
+    @Test func onSameVolumeIsTrueForTwoTempDirectories() throws {
+        let w = try makeWorld()
+        #expect(IngestService.onSameVolume(w.staging, w.library))
+    }
+
+    @Test func visibleSubdirectoryIsReportedAsUnsupportedAndLeftInStaging() async throws {
+        let w = try makeWorld()
+        let folder = w.staging.appendingPathComponent("folder-from-airdrop")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        let report = try await w.service.ingest()
+
+        #expect(report.unsupported == ["folder-from-airdrop"])
+        #expect(!report.isClean)
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+    }
+
     @Test func fallbackDatedFilesAreFlagged() async throws {
         let w = try makeWorld()
         try TestFixtures.writeJPEG(at: w.staging.appendingPathComponent("noexif.jpg"),

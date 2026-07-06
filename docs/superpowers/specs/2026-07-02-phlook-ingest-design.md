@@ -38,7 +38,7 @@ Resolution order:
 `ingest(staging: URL, library: URL) throws -> IngestReport`
 
 Pipeline per file:
-1. Enumerate staging, **skipping hidden files** (`.osxphotos_export.db` lives there) and directories.
+1. Enumerate staging, **skipping hidden files entirely** (`.osxphotos_export.db` lives there). Visible non-regular entries (directories, symlinks) are not hidden, so they are enumerated and reported as unsupported, left in staging — see the invariant below.
 2. Partition by extension against `LibraryScanner.imageExts` / `videoExts`; unsupported extensions are left in place and reported.
 3. Compute target name: `YYYY-MM-DD_HH-MM-SS_<original base name>.<original extension>` (extension case preserved as-is). If the base name already starts with a `YYYY-MM-DD_HH-MM-SS_` prefix (file was previously ingested/exported), keep the name unchanged rather than double-prefixing.
 4. Collision policy — a target name that already exists (in the library **or** claimed earlier in this batch) means "presumed duplicate": leave the file in staging, report it, do not rename or overwrite. In-batch, first file wins.

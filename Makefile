@@ -31,4 +31,9 @@ run-app: app
 #   make ingest                      (~/Pictures/PHLOOK_staging → ~/Pictures/PHLOOK)
 #   make ingest STAGING=/p LIBRARY=/q
 ingest:
-	swift run -c release phlook-ingest $(STAGING) $(LIBRARY)
+ifdef LIBRARY
+ifndef STAGING
+	$(error STAGING must be set when LIBRARY is set)
+endif
+endif
+	swift run -c release phlook-ingest $(if $(STAGING),"$(STAGING)") $(if $(LIBRARY),"$(LIBRARY)")

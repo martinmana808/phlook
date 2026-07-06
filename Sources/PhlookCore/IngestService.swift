@@ -17,6 +17,10 @@ public enum IngestError: Error, Equatable {
     /// A move failed mid-batch: which file, why, and everything that had
     /// already succeeded (already-moved files STAY moved; re-running is safe).
     case moveFailed(file: String, reason: String, partial: IngestReport)
+    /// Staging and library live on different volumes; a same-volume rename
+    /// cannot be guaranteed and FileManager would silently degrade to
+    /// copy+delete, risking a partial file under a valid final name.
+    case differentVolumes(staging: String, library: String)
 }
 
 /// Moves supported media from a staging folder into the library, renaming to
@@ -31,6 +35,15 @@ public struct IngestService {
     public init(staging: URL, library: URL) {
         self.staging = staging
         self.library = library
+    }
+
+    /// Whether `a` and `b` reside on the same volume. If either resource
+    /// lookup fails, returns true (does not block ingest on an unreadable key).
+    static func onSameVolume(_ a: URL, _ b: URL) -> Bool {
+        guard let aID = try? a.resourceValues(forKeys: [.volumeIdentifierKey]).volumeIdentifier,
+              let bID = try? b.resourceValues(forKeys: [.volumeIdentifierKey]).volumeIdentifier
+        else { return true }
+        return (aID as AnyObject).isEqual(bID as AnyObject)
     }
 
     static func targetName(originalName: String, timestamp: String) -> String {
@@ -49,6 +62,10 @@ public struct IngestService {
         }
         try fm.createDirectory(at: library, withIntermediateDirectories: true)
 
+        guard Self.onSameVolume(staging, library) else {
+            throw IngestError.differentVolumes(staging: staging.path, library: library.path)
+        }
+
         // Shallow, hidden-skipping, sorted for deterministic first-wins.
         let entries = try fm.contentsOfDirectory(
             at: staging,
@@ -60,7 +77,10 @@ public struct IngestService {
         var claimed = Set<String>()
 
         for url in entries {
-            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else {
+                report.unsupported.append(url.lastPathComponent)
+                continue
+            }
             let original = url.lastPathComponent
             let ext = url.pathExtension.lowercased()
             guard LibraryScanner.imageExts.contains(ext) || LibraryScanner.videoExts.contains(ext) else {
