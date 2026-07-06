@@ -20,9 +20,15 @@ public final class MediaIndex {
                     file_type TEXT,
                     width INTEGER,
                     height INTEGER,
-                    last_scanned TEXT
+                    last_scanned TEXT,
+                    duration REAL
                 );
             """)
+            // Databases created before the duration column existed:
+            let columns = try db.columns(in: "files").map(\.name)
+            if !columns.contains("duration") {
+                try db.execute(sql: "ALTER TABLE files ADD COLUMN duration REAL")
+            }
         }
     }
 
@@ -30,10 +36,13 @@ public final class MediaIndex {
         try dbQueue.write { db in
             if var existing = try MediaItem.filter(MediaItem.Columns.path == item.path).fetchOne(db) {
                 existing.hash = item.hash
-                existing.dateTaken = item.dateTaken
+                // Enrichment-preserving: a scan pass carries nil for fields only
+                // the video enricher knows; never wipe an enriched value with nil.
+                existing.dateTaken = item.dateTaken ?? existing.dateTaken
+                existing.width = item.width ?? existing.width
+                existing.height = item.height ?? existing.height
+                existing.duration = item.duration ?? existing.duration
                 existing.fileType = item.fileType
-                existing.width = item.width
-                existing.height = item.height
                 existing.lastScanned = item.lastScanned
                 try existing.update(db)
             } else {

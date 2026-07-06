@@ -10,6 +10,7 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
     public var width: Int?
     public var height: Int?
     public var lastScanned: Date
+    public var duration: Double?  // seconds; nil = unknown; -1 = unreadable sentinel
 
     public static let databaseTableName = "files"
 
@@ -24,13 +25,15 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
         case fileType = "file_type"
         case width, height
         case lastScanned = "last_scanned"
+        case duration
     }
 
     public init(id: Int64? = nil, path: String, hash: String?, dateTaken: Date?,
-                fileType: String, width: Int?, height: Int?, lastScanned: Date) {
+                fileType: String, width: Int?, height: Int?, lastScanned: Date,
+                duration: Double? = nil) {
         self.id = id; self.path = path; self.hash = hash; self.dateTaken = dateTaken
         self.fileType = fileType; self.width = width; self.height = height
-        self.lastScanned = lastScanned
+        self.lastScanned = lastScanned; self.duration = duration
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {
