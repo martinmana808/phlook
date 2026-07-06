@@ -37,6 +37,18 @@ public final class MediaIndex {
                 try db.execute(sql: "UPDATE files SET date_taken = NULL WHERE file_type = 'video'")
                 try db.execute(sql: "PRAGMA user_version = 2")
             }
+            if version < 3 {
+                try db.execute(sql: """
+                    CREATE TABLE IF NOT EXISTS imports (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        device_name TEXT NOT NULL,
+                        item_identifier TEXT NOT NULL,
+                        imported_at TEXT NOT NULL,
+                        UNIQUE(device_name, item_identifier)
+                    );
+                """)
+                try db.execute(sql: "PRAGMA user_version = 3")
+            }
         }
     }
 
@@ -101,6 +113,24 @@ public final class MediaIndex {
                 WHERE file_type = 'video'
                   AND (duration IS NULL OR (date_taken IS NULL AND duration >= 0))
             """)
+        }
+    }
+
+    /// Idempotent: re-recording the same (device, identifier) is a no-op.
+    public func recordImport(device: String, identifier: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT OR IGNORE INTO imports (device_name, item_identifier, imported_at) VALUES (?, ?, ?)",
+                arguments: [device, identifier, ISO8601DateFormatter().string(from: Date())])
+        }
+    }
+
+    public func importedIdentifiers(device: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            Set(try String.fetchAll(
+                db,
+                sql: "SELECT item_identifier FROM imports WHERE device_name = ?",
+                arguments: [device]))
         }
     }
 }
