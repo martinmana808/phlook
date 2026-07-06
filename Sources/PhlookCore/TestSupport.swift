@@ -3,7 +3,7 @@ import CoreGraphics
 import ImageIO
 
 public enum TestFixtures {
-    public static func writeJPEG(at url: URL, width: Int, height: Int) throws {
+    public static func writeJPEG(at url: URL, width: Int, height: Int, captureDate: Date? = nil) throws {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(
             data: nil,
@@ -22,7 +22,15 @@ public enum TestFixtures {
         guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil) else {
             throw NSError(domain: "TestFixtures", code: 3)
         }
-        CGImageDestinationAddImage(dest, cgImage, nil)
+        var properties: CFDictionary?
+        if let captureDate {
+            let f = DateFormatter()
+            f.dateFormat = "yyyy:MM:dd HH:mm:ss"
+            f.locale = Locale(identifier: "en_US_POSIX")
+            let exif: [CFString: Any] = [kCGImagePropertyExifDateTimeOriginal: f.string(from: captureDate)]
+            properties = [kCGImagePropertyExifDictionary: exif] as CFDictionary
+        }
+        CGImageDestinationAddImage(dest, cgImage, properties)
         guard CGImageDestinationFinalize(dest) else {
             throw NSError(domain: "TestFixtures", code: 4)
         }
