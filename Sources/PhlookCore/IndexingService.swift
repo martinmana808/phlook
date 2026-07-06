@@ -29,4 +29,12 @@ public final class IndexingService {
     public func enrichVideos() async -> Int {
         await VideoMetadataEnricher().enrich(index: index)
     }
+
+    public func recordImport(device: String, identifier: String) throws {
+        try index.recordImport(device: device, identifier: identifier)
+    }
+
+    public func importedIdentifiers(device: String) throws -> Set<String> {
+        try index.importedIdentifiers(device: device)
+    }
 }
