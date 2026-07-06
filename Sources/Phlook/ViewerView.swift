@@ -16,7 +16,23 @@ struct ViewerView: View {
             chevrons
             topBar
         }
-        .overlay(alignment: .trailing) { sidebarHost }   // Task 7 fills this
+        // Double-click anywhere (that isn't a control) closes the viewer,
+        // mirroring the double-click that opened it from the grid.
+        .gesture(TapGesture(count: 2).onEnded { vm.closeViewer() })
+        .contextMenu {
+            if let item = vm.currentItem {
+                Button("Copy") { Self.copyFile(item) }
+                if item.fileType == "image" {
+                    Button("Copy Image") { Self.copyImageData(item) }
+                }
+                Divider()
+                Button("Show in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting(
+                        [URL(fileURLWithPath: item.path)])
+                }
+            }
+        }
+        .overlay(alignment: .trailing) { sidebarHost }
         .animation(.easeInOut(duration: 0.2), value: vm.sidebarOpen)
         .onAppear {
             monitor.onLeft = { vm.step(-1) }
@@ -139,6 +155,23 @@ struct ViewerView: View {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
         return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+    }
+}
+
+extension ViewerView {
+    /// Copy the file itself — pasteable into Finder, Mail, iMessage, Final Cut.
+    static func copyFile(_ item: MediaItem) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([URL(fileURLWithPath: item.path) as NSURL])
+    }
+
+    /// Copy decoded image data — pasteable into image editors and documents.
+    static func copyImageData(_ item: MediaItem) {
+        guard let image = NSImage(contentsOf: URL(fileURLWithPath: item.path)) else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([image])
     }
 }
 
