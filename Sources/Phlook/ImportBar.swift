@@ -48,10 +48,12 @@ struct ImportResultSheet: View {
             switch state {
             case .finished(let report, let failed):
                 Text("Import complete").font(.headline)
-                Text(report.summaryText)
+                Text(Self.summaryText(for: report, failed: failed))
                     .font(.system(.callout, design: .monospaced))
                     .textSelection(.enabled)
                 if !failed.isEmpty {
+                    Text("⚠️ NOT CLEAN — \(failed.count) download(s) failed. Do NOT delete anything from the phone yet.")
+                        .font(.callout).bold().foregroundStyle(.red)
                     Text("Failed downloads (still on the phone):").font(.caption).foregroundStyle(.secondary)
                     ForEach(failed, id: \.self) { Text($0).font(.caption2) }
                 }
@@ -65,5 +67,15 @@ struct ImportResultSheet: View {
         }
         .padding(20)
         .frame(minWidth: 420)
+    }
+
+    /// Never let the CLEAN line survive when downloads failed — it reads as a
+    /// green light to delete originals from the phone, which would be unsafe.
+    private static func summaryText(for report: IngestReport, failed: [String]) -> String {
+        guard !failed.isEmpty else { return report.summaryText }
+        return report.summaryText
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.contains("CLEAN — safe to delete") }
+            .joined(separator: "\n")
     }
 }

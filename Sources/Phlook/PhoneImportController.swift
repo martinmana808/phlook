@@ -22,9 +22,25 @@ final class PhoneImportController: NSObject, ObservableObject {
     private var camera: ICCameraDevice?
     private var pendingFiles: [ICCameraFile] = []
     private var downloadQueue: [ICCameraFile] = []
+    private var inFlightFile: ICCameraFile?
     private var doneCount = 0
     private var failedNames: [String] = []
     private var downloadSeq = 0
+    /// Set once the complete-content-catalog callback has fired for the current
+    /// session. Guards against a session-open error being papered over by a
+    /// stale "ready"/"up to date" state — and against recomputePending firing
+    /// before the catalog exists.
+    private var catalogReceived = false
+    /// Bumped at the start of every importAllNew() run, and again by the
+    /// watchdog's stall branch. A download callback that reports back with a
+    /// stale generation is a straggler from an invalidated run and must not
+    /// mutate the new run's state.
+    private var runGeneration = 0
+    private var inFlightGeneration = 0
+    /// Last time we observed forward progress (a completed download or a
+    /// download-progress tick). The inactivity watchdog fires off of this,
+    /// not a fixed timer, so a slow-but-alive transfer isn't killed.
+    private var lastActivity = Date()
 
     init(service: IndexingService,
          staging: URL = FileManager.default.homeDirectoryForCurrentUser
@@ -45,16 +61,25 @@ final class PhoneImportController: NSObject, ObservableObject {
 
     func importAllNew() {
         guard case .ready(let device, let pending) = state, pending > 0, camera != nil else { return }
+        runGeneration += 1
         try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         downloadQueue = pendingFiles
         doneCount = 0
         failedNames = []
+        lastActivity = Date()
         state = .importing(device: device, done: 0, total: downloadQueue.count)
         downloadNext()
     }
 
     func dismissResult() {
-        if camera != nil { recomputePending() } else { state = .idle }
+        guard case .error = state, let camera, !catalogReceived else {
+            if camera != nil { recomputePending() } else { state = .idle }
+            return
+        }
+        // Session-open (or catalog-never-arrived) error: retry by re-requesting
+        // the session rather than silently falling back to a stale "ready".
+        state = .connecting(device: camera.name ?? "iPhone")
+        camera.requestOpenSession()
     }
 
     // MARK: - Internals
@@ -67,6 +92,7 @@ final class PhoneImportController: NSObject, ObservableObject {
 
     private func recomputePending() {
         guard let camera else { return }
+        guard catalogReceived else { return }   // no catalog yet: don't claim "ready"
         let files = (camera.mediaFiles ?? camera.contents ?? [])
             .compactMap { $0 as? ICCameraFile }
         let recorded = (try? service.importedIdentifiers(device: camera.name ?? "device")) ?? []
@@ -84,17 +110,26 @@ final class PhoneImportController: NSObject, ObservableObject {
             return
         }
         downloadQueue.removeFirst()
+        inFlightFile = file
         let options: [ICDownloadOption: Any] = [
             .downloadsDirectoryURL: staging,
         ]
         downloadSeq += 1
         let seq = downloadSeq
+        inFlightGeneration = runGeneration
+        lastActivity = Date()
         let stalledName = file.name ?? "?"
         Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 180_000_000_000)   // 3 min per file
-            guard let self, self.downloadSeq == seq,
-                  case .importing = self.state else { return }
-            self.state = .error(message: "Download stalled on '\(stalledName)'. Reconnect the iPhone and try again — already-imported items will be skipped.")
+            while true {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)   // poll every 30s
+                guard let self, self.downloadSeq == seq,
+                      case .importing = self.state else { return }
+                if Date().timeIntervalSince(self.lastActivity) > 180 {
+                    self.runGeneration += 1   // invalidate any in-flight callback for this file
+                    self.state = .error(message: "Download stalled on '\(stalledName)'. Reconnect the iPhone and try again — already-imported items will be skipped.")
+                    return
+                }
+            }
         }
         camera?.requestDownloadFile(
             file, options: options, downloadDelegate: self,
@@ -106,20 +141,49 @@ final class PhoneImportController: NSObject, ObservableObject {
     @objc nonisolated func didDownloadFile(_ file: ICCameraFile, error: Error?,
                                        options: [String: Any], contextInfo: UnsafeMutableRawPointer?) {
         Task { @MainActor in
+            let generation = self.inFlightGeneration
             self.downloadSeq += 1
+            self.lastActivity = Date()
+            if self.inFlightFile === file { self.inFlightFile = nil }
             if let error {
                 self.failedNames.append("\(file.name ?? "?") — \(error.localizedDescription)")
             } else {
+                // A completed download is real regardless of whether this run
+                // has since been invalidated — record it so retry semantics
+                // (never re-download an already-fetched item) stay correct.
                 let device = self.camera?.name ?? "device"
                 try? self.service.recordImport(device: device,
                                                identifier: self.descriptor(for: file).identifier)
                 self.doneCount += 1
             }
-            if case .importing(let device, _, let total) = self.state {
-                self.state = .importing(device: device, done: self.doneCount, total: total)
+            guard generation == self.runGeneration, case .importing(let device, _, let total) = self.state else {
+                return   // stale straggler from an invalidated run: recorded above, nothing else to do
             }
+            self.state = .importing(device: device, done: self.doneCount + self.failedNames.count, total: total)
             self.downloadNext()
         }
+    }
+
+    /// Device unplugged. If we were mid-import, finish with whatever already
+    /// arrived rather than vanishing the run — the user should still get a
+    /// result sheet (and staging still needs ingesting).
+    private func handleDeviceRemoved() {
+        if case .importing = state {
+            runGeneration += 1   // invalidate any straggler download callback
+            var remainder = downloadQueue.map { $0.name ?? "?" }
+            if let name = inFlightFile?.name { remainder.insert(name, at: 0) }
+            failedNames.append(contentsOf: remainder.map { "\($0) — device disconnected before download" })
+            camera = nil
+            downloadQueue = []
+            inFlightFile = nil
+            catalogReceived = false
+            finishImport()
+            return
+        }
+        camera = nil
+        pendingFiles = []
+        catalogReceived = false
+        state = .idle
     }
 
     private func finishImport() {
@@ -145,6 +209,7 @@ extension PhoneImportController: ICDeviceBrowserDelegate {
         Task { @MainActor in
             guard self.camera == nil, let cam = device as? ICCameraDevice else { return }
             self.camera = cam
+            self.catalogReceived = false
             cam.delegate = self
             self.state = .connecting(device: device.name ?? "iPhone")
             cam.requestOpenSession()
@@ -153,11 +218,8 @@ extension PhoneImportController: ICDeviceBrowserDelegate {
 
     nonisolated func deviceBrowser(_ browser: ICDeviceBrowser, didRemove device: ICDevice, moreGoing: Bool) {
         Task { @MainActor in
-            if device === self.camera {
-                self.camera = nil
-                self.pendingFiles = []
-                self.state = .idle
-            }
+            guard device === self.camera else { return }
+            self.handleDeviceRemoved()
         }
     }
 }
@@ -166,7 +228,10 @@ extension PhoneImportController: ICDeviceBrowserDelegate {
 
 extension PhoneImportController: ICCameraDeviceDelegate {
     nonisolated func deviceDidBecomeReady(withCompleteContentCatalog device: ICCameraDevice) {
-        Task { @MainActor in self.recomputePending() }
+        Task { @MainActor in
+            self.catalogReceived = true
+            self.recomputePending()
+        }
     }
 
     nonisolated func device(_ device: ICDevice, didOpenSessionWithError error: Error?) {
@@ -195,4 +260,13 @@ extension PhoneImportController: ICCameraDeviceDelegate {
 
 // MARK: - ICCameraDeviceDownloadDelegate
 
-extension PhoneImportController: ICCameraDeviceDownloadDelegate {}
+extension PhoneImportController: ICCameraDeviceDownloadDelegate {
+    /// Bytes are still moving: the transfer is alive even though no file has
+    /// completed yet. Feeds the inactivity watchdog so a large, slow-but-alive
+    /// download doesn't get killed as "stalled".
+    nonisolated func didReceiveDownloadProgress(for file: ICCameraFile, downloadedBytes: off_t, maxBytes: off_t) {
+        Task { @MainActor in
+            self.lastActivity = Date()
+        }
+    }
+}

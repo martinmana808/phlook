@@ -2,6 +2,8 @@ import Foundation
 import GRDB
 
 public final class MediaIndex {
+    private static let importTimestampFormatter = ISO8601DateFormatter()
+
     private let dbQueue: DatabaseQueue
 
     public init(dbPath: String) throws {
@@ -121,7 +123,7 @@ public final class MediaIndex {
         try dbQueue.write { db in
             try db.execute(
                 sql: "INSERT OR IGNORE INTO imports (device_name, item_identifier, imported_at) VALUES (?, ?, ?)",
-                arguments: [device, identifier, ISO8601DateFormatter().string(from: Date())])
+                arguments: [device, identifier, Self.importTimestampFormatter.string(from: Date())])
         }
     }
 

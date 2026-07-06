@@ -37,7 +37,7 @@ Getting media off the iPhone requires a middleman (Photos.app or Image Capture),
   );
   ```
 - API: `recordImport(device: String, identifier: String)` (idempotent — INSERT OR IGNORE), `importedIdentifiers(device: String) -> Set<String>`.
-- `PhoneImportPlanner` (pure): given `[CameraItemDescriptor]` (name, identifier, isMediaFile) and the recorded set → `[CameraItemDescriptor]` still pending. `CameraItemDescriptor.identifier`: the ICC item UUID when available, else the composite `"\(name)|\(creationDateISO8601)|\(fileSize)"`.
+- `PhoneImportPlanner` (pure): given `[CameraItemDescriptor]` (name, identifier, isMediaFile) and the recorded set → `[CameraItemDescriptor]` still pending. `CameraItemDescriptor.identifier`: the composite `"\(name)|\(creationDateISO8601)|\(fileSize)"` (deterministic, tested).
 
 ### 2. `PhoneImportController` (app target — ObservableObject, ICC delegate)
 
