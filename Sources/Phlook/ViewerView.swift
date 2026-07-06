@@ -17,6 +17,7 @@ struct ViewerView: View {
             topBar
         }
         .overlay(alignment: .trailing) { sidebarHost }   // Task 7 fills this
+        .animation(.easeInOut(duration: 0.2), value: vm.sidebarOpen)
         .onAppear {
             monitor.onLeft = { vm.step(-1) }
             monitor.onRight = { vm.step(+1) }
@@ -32,7 +33,10 @@ struct ViewerView: View {
     }
 
     @ViewBuilder private var sidebarHost: some View {
-        EmptyView()   // replaced by DetailsSidebar in Task 7
+        if vm.sidebarOpen, let item = vm.currentItem {
+            DetailsSidebar(item: item)
+                .transition(.move(edge: .trailing))
+        }
     }
 
     @ViewBuilder private var media: some View {
