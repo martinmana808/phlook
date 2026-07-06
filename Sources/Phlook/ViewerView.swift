@@ -112,10 +112,13 @@ struct ViewerView: View {
         if item.fileType == "video" {
             player = AVPlayer(url: url)
         } else {
+            let capturedIndex = vm.viewerIndex
             let maxPixel = (NSScreen.main.map { $0.frame.width * $0.backingScaleFactor } ?? 2560) * 2
-            image = await Task.detached {
+            let loaded = await Task.detached {
                 Self.downsampledImage(at: url, maxPixel: maxPixel)
             }.value
+            // Rapid navigation: only publish if this decode is still the current item.
+            if vm.viewerIndex == capturedIndex { image = loaded }
         }
     }
 
