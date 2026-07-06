@@ -16,6 +16,36 @@ struct ThumbCell: View {
         }
         .frame(width: 80, height: 80)
         .clipped()
+        .overlay(alignment: .bottomTrailing) {
+            if item.fileType == "video",
+               let text = DurationFormatter.string(seconds: item.duration) {
+                Text(text)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .padding(3)
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            if item.fileType == "video" {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white)
+                    .shadow(radius: 1)
+                    .padding(4)
+            }
+        }
+        .contentShape(Rectangle())
+        .gesture(TapGesture(count: 2).onEnded { vm.openViewer(item) })
+        .contextMenu {
+            Button("Open") { vm.openViewer(item) }
+            Button("View Details") { vm.openViewer(item, withSidebar: true) }
+            Divider()
+            Button("Show in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
+            }
+        }
         .task { image = await vm.thumbnail(for: item) }
     }
 }
