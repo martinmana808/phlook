@@ -52,6 +52,7 @@ struct ThumbCell: View {
 
 struct MicroGridView: View {
     @ObservedObject var vm: LibraryViewModel
+    @ObservedObject var importer: PhoneImportController
     private let columns = [GridItem(.adaptive(minimum: 80, maximum: 80), spacing: 2)]
 
     var body: some View {
@@ -74,14 +75,17 @@ struct MicroGridView: View {
     }
 
     private var filterBar: some View {
-        Picker("Filter", selection: $vm.filter) {
-            ForEach(MediaFilter.allCases) { f in
-                Text(f.rawValue).tag(f)
+        HStack(spacing: 16) {
+            Picker("Filter", selection: $vm.filter) {
+                ForEach(MediaFilter.allCases) { f in
+                    Text(f.rawValue).tag(f)
+                }
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 280)
+            ImportBar(importer: importer)
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: 280)
         .padding(.vertical, 8)
     }
 
