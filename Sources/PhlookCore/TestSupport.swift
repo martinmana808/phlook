@@ -78,6 +78,9 @@ public enum TestFixtures {
         let frames = max(1, Int((duration * Double(fps)).rounded()))
         for i in 0..<frames {
             while !input.isReadyForMoreMediaData {
+                guard writer.status == .writing else {
+                    throw writer.error ?? NSError(domain: "TestFixtures", code: 13)
+                }
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
             adaptor.append(pixelBuffer,
