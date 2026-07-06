@@ -3,7 +3,14 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var vm = LibraryViewModel()
     var body: some View {
-        MicroGridView(vm: vm)
-            .onAppear { vm.load() }
+        ZStack {
+            MicroGridView(vm: vm)
+            if vm.viewerIndex != nil {
+                ViewerView(vm: vm)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: vm.viewerIndex != nil)
+        .onAppear { vm.load() }
     }
 }
