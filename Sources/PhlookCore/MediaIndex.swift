@@ -29,19 +29,35 @@ public final class MediaIndex {
             if !columns.contains("duration") {
                 try db.execute(sql: "ALTER TABLE files ADD COLUMN duration REAL")
             }
+
+            let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
+            if version < 2 {
+                // v1 scanner stamped videos with file-creation dates; null them so
+                // the enricher re-dates every video from real capture metadata.
+                try db.execute(sql: "UPDATE files SET date_taken = NULL WHERE file_type = 'video'")
+                try db.execute(sql: "PRAGMA user_version = 2")
+            }
         }
     }
 
     public func upsert(_ item: MediaItem) throws {
         try dbQueue.write { db in
             if var existing = try MediaItem.filter(MediaItem.Columns.path == item.path).fetchOne(db) {
+                if existing.hash != item.hash {
+                    // Content changed: take the scan's values verbatim so the row
+                    // re-enters the enrichment pending set (duration nil).
+                    existing.dateTaken = item.dateTaken
+                    existing.width = item.width
+                    existing.height = item.height
+                    existing.duration = item.duration
+                } else {
+                    // Same content: never wipe enriched values with a scan's nils.
+                    existing.dateTaken = item.dateTaken ?? existing.dateTaken
+                    existing.width = item.width ?? existing.width
+                    existing.height = item.height ?? existing.height
+                    existing.duration = item.duration ?? existing.duration
+                }
                 existing.hash = item.hash
-                // Enrichment-preserving: a scan pass carries nil for fields only
-                // the video enricher knows; never wipe an enriched value with nil.
-                existing.dateTaken = item.dateTaken ?? existing.dateTaken
-                existing.width = item.width ?? existing.width
-                existing.height = item.height ?? existing.height
-                existing.duration = item.duration ?? existing.duration
                 existing.fileType = item.fileType
                 existing.lastScanned = item.lastScanned
                 try existing.update(db)

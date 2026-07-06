@@ -19,7 +19,7 @@ struct PhlookApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        WindowGroup {
+        Window("Phlook", id: "main") {
             ContentView()
                 .frame(minWidth: 900, minHeight: 600)
         }

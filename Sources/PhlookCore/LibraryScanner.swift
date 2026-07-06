@@ -27,7 +27,7 @@ public struct LibraryScanner {
             let fileDate = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate
             results.append(MediaItem(
                 path: url.path, hash: Self.quickHash(url),
-                dateTaken: taken ?? fileDate,
+                dateTaken: isImage ? (taken ?? fileDate) : nil,
                 fileType: isImage ? "image" : "video",
                 width: w, height: h, lastScanned: Date()))
         }

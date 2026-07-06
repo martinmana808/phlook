@@ -29,7 +29,7 @@ struct ViewerView: View {
             monitor.stop()
             player?.pause()
         }
-        .task(id: vm.viewerIndex) { await loadCurrent() }
+        .task(id: vm.currentItem?.path) { await loadCurrent() }
     }
 
     @ViewBuilder private var sidebarHost: some View {
@@ -116,13 +116,13 @@ struct ViewerView: View {
         if item.fileType == "video" {
             player = AVPlayer(url: url)
         } else {
-            let capturedIndex = vm.viewerIndex
+            let capturedPath = item.path
             let maxPixel = (NSScreen.main.map { $0.frame.width * $0.backingScaleFactor } ?? 2560) * 2
             let loaded = await Task.detached {
                 Self.downsampledImage(at: url, maxPixel: maxPixel)
             }.value
             // Rapid navigation: only publish if this decode is still the current item.
-            if vm.viewerIndex == capturedIndex { image = loaded }
+            if vm.currentItem?.path == capturedPath { image = loaded }
         }
     }
 
