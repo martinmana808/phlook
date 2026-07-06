@@ -20,6 +20,10 @@ let package = Package(
             name: "Phlook",
             dependencies: ["PhlookCore"]
         ),
+        .executableTarget(
+            name: "phlook-ingest",
+            dependencies: ["PhlookCore"]
+        ),
         .testTarget(
             name: "PhlookCoreTests",
             dependencies: ["PhlookCore"],

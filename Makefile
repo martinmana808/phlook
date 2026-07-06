@@ -3,7 +3,7 @@
 # but it is harmless to pass it there too.
 CLT_FPATH := /Library/Developer/CommandLineTools/Library/Developer/Frameworks
 
-.PHONY: build test clean
+.PHONY: build test clean ingest
 
 build:
 	swift build
@@ -26,3 +26,9 @@ app:
 # Build + open the app bundle
 run-app: app
 	open ./Phlook.app
+
+# Ingest staged media into the library:
+#   make ingest                      (~/Pictures/PHLOOK_staging → ~/Pictures/PHLOOK)
+#   make ingest STAGING=/p LIBRARY=/q
+ingest:
+	swift run -c release phlook-ingest $(STAGING) $(LIBRARY)
