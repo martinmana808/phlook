@@ -24,6 +24,7 @@ final class PhoneImportController: NSObject, ObservableObject {
     private var downloadQueue: [ICCameraFile] = []
     private var doneCount = 0
     private var failedNames: [String] = []
+    private var downloadSeq = 0
 
     init(service: IndexingService,
          staging: URL = FileManager.default.homeDirectoryForCurrentUser
@@ -86,6 +87,15 @@ final class PhoneImportController: NSObject, ObservableObject {
         let options: [ICDownloadOption: Any] = [
             .downloadsDirectoryURL: staging,
         ]
+        downloadSeq += 1
+        let seq = downloadSeq
+        let stalledName = file.name ?? "?"
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000_000)   // 3 min per file
+            guard let self, self.downloadSeq == seq,
+                  case .importing = self.state else { return }
+            self.state = .error(message: "Download stalled on '\(stalledName)'. Reconnect the iPhone and try again — already-imported items will be skipped.")
+        }
         camera?.requestDownloadFile(
             file, options: options, downloadDelegate: self,
             didDownloadSelector: #selector(didDownloadFile(_:error:options:contextInfo:)),
@@ -96,6 +106,7 @@ final class PhoneImportController: NSObject, ObservableObject {
     @objc nonisolated func didDownloadFile(_ file: ICCameraFile, error: Error?,
                                        options: [String: Any], contextInfo: UnsafeMutableRawPointer?) {
         Task { @MainActor in
+            self.downloadSeq += 1
             if let error {
                 self.failedNames.append("\(file.name ?? "?") — \(error.localizedDescription)")
             } else {
