@@ -40,3 +40,5 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
         id = inserted.rowID
     }
 }
+
+extension MediaItem: Identifiable {}   // id: Int64? (row id) — non-nil for fetched rows

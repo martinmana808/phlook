@@ -1,12 +1,37 @@
 import SwiftUI
 import PhlookCore
 
+enum MediaFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case photos = "Photos"
+    case videos = "Videos"
+
+    var id: String { rawValue }
+
+    func matches(_ item: MediaItem) -> Bool {
+        switch self {
+        case .all: return true
+        case .photos: return item.fileType == "image"
+        case .videos: return item.fileType == "video"
+        }
+    }
+}
+
 @MainActor
 final class LibraryViewModel: ObservableObject {
     @Published var items: [MediaItem] = []
+    @Published private(set) var visibleItems: [MediaItem] = []
     @Published var isIndexing = false
     @Published var viewerIndex: Int?
     @Published var sidebarOpen = false
+    @Published var detailsItem: MediaItem?   // grid "View Details" modal
+    @Published var filter: MediaFilter = .all {
+        didSet {
+            guard filter != oldValue else { return }
+            closeViewer()
+            rebuildVisible()
+        }
+    }
     let service: IndexingService
 
     init() {
@@ -16,8 +41,8 @@ final class LibraryViewModel: ObservableObject {
     }
 
     var currentItem: MediaItem? {
-        guard let i = viewerIndex, items.indices.contains(i) else { return nil }
-        return items[i]
+        guard let i = viewerIndex, visibleItems.indices.contains(i) else { return nil }
+        return visibleItems[i]
     }
 
     func load() {
@@ -44,25 +69,33 @@ final class LibraryViewModel: ObservableObject {
     }
 
     /// Swap the items array while keeping the open viewer anchored to the same
-    /// file (re-resolved by path). If the file vanished, the viewer closes.
+    /// file (re-resolved by path in the filtered list). If the file vanished,
+    /// the viewer closes.
     private func refreshItems(_ new: [MediaItem]) {
         let openPath = currentItem?.path
         items = new
+        rebuildVisible()
         if let openPath {
-            viewerIndex = ViewerMath.resolveIndex(path: openPath, in: new)
+            viewerIndex = ViewerMath.resolveIndex(path: openPath, in: visibleItems)
         }
     }
 
-    func openViewer(_ item: MediaItem, withSidebar: Bool = false) {
-        viewerIndex = ViewerMath.resolveIndex(path: item.path, in: items)
-        if withSidebar { sidebarOpen = true }
+    private func rebuildVisible() {
+        visibleItems = filter == .all ? items : items.filter { filter.matches($0) }
     }
 
-    func closeViewer() { viewerIndex = nil }
+    func openViewer(_ item: MediaItem) {
+        viewerIndex = ViewerMath.resolveIndex(path: item.path, in: visibleItems)
+    }
+
+    func closeViewer() {
+        viewerIndex = nil
+        sidebarOpen = false   // sidebar always starts closed for the next open
+    }
 
     func step(_ delta: Int) {
-        guard let i = viewerIndex, !items.isEmpty else { return }
-        viewerIndex = ViewerMath.clamp(i + delta, count: items.count)
+        guard let i = viewerIndex, !visibleItems.isEmpty else { return }
+        viewerIndex = ViewerMath.clamp(i + delta, count: visibleItems.count)
     }
 
     func thumbnail(for item: MediaItem) async -> NSImage? {

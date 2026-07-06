@@ -34,7 +34,7 @@ struct ViewerView: View {
 
     @ViewBuilder private var sidebarHost: some View {
         if vm.sidebarOpen, let item = vm.currentItem {
-            DetailsSidebar(item: item)
+            DetailsSidebar(item: item, onClose: { vm.sidebarOpen = false })
                 .transition(.move(edge: .trailing))
         }
     }
@@ -46,7 +46,10 @@ struct ViewerView: View {
                 Text("File is missing on disk").foregroundStyle(.secondary)
             }
         } else if let player {
-            VideoPlayer(player: player)
+            // AppKit AVPlayerView, not SwiftUI's VideoPlayer: the _AVKit_SwiftUI
+            // overlay aborts in runtime metadata instantiation on this
+            // macOS/CLT-SDK combination (verified crash report 2026-07-06).
+            PlayerHostView(player: player)
         } else if let image {
             Image(nsImage: image).resizable().scaledToFit()
         } else {
@@ -60,7 +63,7 @@ struct ViewerView: View {
                 .disabled(vm.viewerIndex == 0)
             Spacer()
             Button { vm.step(+1) } label: { chevron("chevron.right") }
-                .disabled(vm.viewerIndex == vm.items.count - 1)
+                .disabled(vm.viewerIndex == vm.visibleItems.count - 1)
         }
         .padding(.horizontal, 16)
         .buttonStyle(.plain)
@@ -86,7 +89,7 @@ struct ViewerView: View {
                     Text(URL(fileURLWithPath: item.path).lastPathComponent)
                         .foregroundStyle(.white).lineLimit(1)
                     if let i = vm.viewerIndex {
-                        Text(ViewerMath.positionString(index: i, count: vm.items.count))
+                        Text(ViewerMath.positionString(index: i, count: vm.visibleItems.count))
                             .foregroundStyle(.white.opacity(0.6))
                     }
                 }
@@ -136,5 +139,24 @@ struct ViewerView: View {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
         return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+    }
+}
+
+/// AppKit-backed player host. Deliberately avoids SwiftUI's `VideoPlayer`:
+/// its _AVKit_SwiftUI overlay crashes (SIGABRT in generic-metadata init) when
+/// built with Command Line Tools SDK and run on macOS 26.
+private struct PlayerHostView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .floating
+        view.showsFullScreenToggleButton = false
+        view.player = player
+        return view
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if nsView.player !== player { nsView.player = player }
     }
 }

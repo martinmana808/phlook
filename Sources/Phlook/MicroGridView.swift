@@ -40,7 +40,7 @@ struct ThumbCell: View {
         .gesture(TapGesture(count: 2).onEnded { vm.openViewer(item) })
         .contextMenu {
             Button("Open") { vm.openViewer(item) }
-            Button("View Details") { vm.openViewer(item, withSidebar: true) }
+            Button("View Details") { vm.detailsItem = item }
             Divider()
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
@@ -55,29 +55,9 @@ struct MicroGridView: View {
     private let columns = [GridItem(.adaptive(minimum: 80, maximum: 80), spacing: 2)]
 
     var body: some View {
-        Group {
-            if vm.items.isEmpty {
-                VStack(spacing: 12) {
-                    if vm.isIndexing {
-                        ProgressView()
-                        Text("Indexing your library…")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("No media found in ~/Pictures/PHLOOK")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 2) {
-                        ForEach(vm.items, id: \.path) { item in
-                            ThumbCell(item: item, vm: vm)
-                        }
-                    }
-                    .padding(2)
-                }
-            }
+        VStack(spacing: 0) {
+            filterBar
+            content
         }
         // Subtle "updating" chip while a background re-scan runs over already-shown items.
         .overlay(alignment: .bottomTrailing) {
@@ -89,6 +69,46 @@ struct MicroGridView: View {
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(.regularMaterial, in: Capsule())
                 .padding(12)
+            }
+        }
+    }
+
+    private var filterBar: some View {
+        Picker("Filter", selection: $vm.filter) {
+            ForEach(MediaFilter.allCases) { f in
+                Text(f.rawValue).tag(f)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 280)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder private var content: some View {
+        if vm.visibleItems.isEmpty {
+            VStack(spacing: 12) {
+                if vm.isIndexing && vm.items.isEmpty {
+                    ProgressView()
+                    Text("Indexing your library…")
+                        .foregroundStyle(.secondary)
+                } else if vm.items.isEmpty {
+                    Text("No media found in ~/Pictures/PHLOOK")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("No \(vm.filter.rawValue.lowercased()) to show")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 2) {
+                    ForEach(vm.visibleItems, id: \.path) { item in
+                        ThumbCell(item: item, vm: vm)
+                    }
+                }
+                .padding(2)
             }
         }
     }
