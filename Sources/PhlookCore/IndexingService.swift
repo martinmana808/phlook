@@ -23,4 +23,10 @@ public final class IndexingService {
     public func items() throws -> [MediaItem] {
         try index.allItems(sortedByDateDescending: true)
     }
+
+    /// Post-scan pass: fill video duration/date/dimensions in the background.
+    @discardableResult
+    public func enrichVideos() async -> Int {
+        await VideoMetadataEnricher().enrich(index: index)
+    }
 }

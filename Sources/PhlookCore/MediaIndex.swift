@@ -75,4 +75,16 @@ public final class MediaIndex {
     public func count() throws -> Int {
         try dbQueue.read { db in try MediaItem.fetchCount(db) }
     }
+
+    /// Video rows the enricher still needs: never tried (duration NULL), or
+    /// date missing on a readable video. The -1 unreadable sentinel is excluded.
+    public func videosNeedingEnrichment() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.fetchAll(db, sql: """
+                SELECT * FROM files
+                WHERE file_type = 'video'
+                  AND (duration IS NULL OR (date_taken IS NULL AND duration >= 0))
+            """)
+        }
+    }
 }
