@@ -1,6 +1,8 @@
 import Foundation
 import CoreGraphics
 import ImageIO
+import AVFoundation
+import CoreVideo
 
 public enum TestFixtures {
     public static func writeJPEG(at url: URL, width: Int, height: Int, captureDate: Date? = nil) throws {
@@ -33,6 +35,59 @@ public enum TestFixtures {
         CGImageDestinationAddImage(dest, cgImage, properties)
         guard CGImageDestinationFinalize(dest) else {
             throw NSError(domain: "TestFixtures", code: 4)
+        }
+    }
+
+    /// Writes a real, playable QuickTime movie of solid frames (H.264, 10fps).
+    /// `creationDate` (e.g. "2026-03-08T13:56:58-0300") is embedded as
+    /// com.apple.quicktime.creationdate when provided.
+    public static func writeQuickTimeMovie(
+        at url: URL, duration: Double = 1.0, width: Int = 64, height: Int = 48,
+        creationDate: String? = nil
+    ) async throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+        ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height,
+            ])
+        if let creationDate {
+            let md = AVMutableMetadataItem()
+            md.identifier = .quickTimeMetadataCreationDate
+            md.value = creationDate as NSString
+            writer.metadata = [md]
+        }
+        writer.add(input)
+        guard writer.startWriting() else {
+            throw writer.error ?? NSError(domain: "TestFixtures", code: 10)
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        var pixelBuffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32ARGB, nil, &pixelBuffer)
+        guard let pixelBuffer else { throw NSError(domain: "TestFixtures", code: 11) }
+
+        let fps = 10
+        let frames = max(1, Int((duration * Double(fps)).rounded()))
+        for i in 0..<frames {
+            while !input.isReadyForMoreMediaData {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            adaptor.append(pixelBuffer,
+                           withPresentationTime: CMTime(value: CMTimeValue(i), timescale: CMTimeScale(fps)))
+        }
+        input.markAsFinished()
+        writer.endSession(atSourceTime: CMTime(value: CMTimeValue(frames), timescale: CMTimeScale(fps)))
+        await writer.finishWriting()
+        guard writer.status == .completed else {
+            throw writer.error ?? NSError(domain: "TestFixtures", code: 12)
         }
     }
 }
