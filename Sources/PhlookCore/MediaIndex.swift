@@ -106,6 +106,21 @@ public final class MediaIndex {
         try dbQueue.read { db in try MediaItem.fetchCount(db) }
     }
 
+    /// Remove rows for the given paths. Chunked to stay under SQLite's
+    /// parameter limit on large selections.
+    public func delete(paths: [String]) throws {
+        guard !paths.isEmpty else { return }
+        try dbQueue.write { db in
+            for chunk in stride(from: 0, to: paths.count, by: 500).map({
+                Array(paths[$0..<min($0 + 500, paths.count)])
+            }) {
+                let placeholders = repeatElement("?", count: chunk.count).joined(separator: ",")
+                try db.execute(sql: "DELETE FROM files WHERE path IN (\(placeholders))",
+                               arguments: StatementArguments(chunk))
+            }
+        }
+    }
+
     /// Video rows the enricher still needs: never tried (duration NULL), or
     /// date missing on a readable video. The -1 unreadable sentinel is excluded.
     public func videosNeedingEnrichment() throws -> [MediaItem] {
