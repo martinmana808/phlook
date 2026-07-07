@@ -40,6 +40,11 @@ final class LibraryViewModel: ObservableObject {
     private var selectionAnchorPath: String?
     private var refreshEpoch = 0
     let service: IndexingService
+    private let thumbCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 2_000
+        return cache
+    }()
 
     init() {
         let root = FileManager.default.homeDirectoryForCurrentUser
@@ -128,9 +133,13 @@ final class LibraryViewModel: ObservableObject {
         viewerIndex = ViewerMath.clamp(i + delta, count: visibleItems.count)
     }
 
-    func thumbnail(for item: MediaItem) async -> NSImage? {
-        guard let url = await service.thumbnails.thumbnailURL(for: item, size: 160) else { return nil }
-        return NSImage(contentsOf: url)
+    func thumbnail(for item: MediaItem, size: Int = 160) async -> NSImage? {
+        let key = "\(item.path)#\(size)" as NSString
+        if let cached = thumbCache.object(forKey: key) { return cached }
+        guard let url = await service.thumbnails.thumbnailURL(for: item, size: size) else { return nil }
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        thumbCache.setObject(image, forKey: key)
+        return image
     }
 
     func isLive(_ item: MediaItem) -> Bool {
