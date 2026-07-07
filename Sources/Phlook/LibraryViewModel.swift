@@ -33,6 +33,7 @@ enum GridDensity: Int, CaseIterable, Identifiable {
 final class LibraryViewModel: ObservableObject {
     @Published var items: [MediaItem] = []
     @Published private(set) var visibleItems: [MediaItem] = []
+    @Published private(set) var timeline: [TimelineBucket] = []
     @Published var isIndexing = false
     @Published var viewerIndex: Int?
     @Published var sidebarOpen = false
@@ -42,6 +43,7 @@ final class LibraryViewModel: ObservableObject {
             guard filter != oldValue else { return }
             closeViewer()
             rebuildVisible()
+            timeline = TimelineIndex.compute(items: visibleItems)
             clearSelection()
         }
     }
@@ -123,6 +125,7 @@ final class LibraryViewModel: ObservableObject {
         items = new
         livePairs = LivePairs.compute(items: new)
         rebuildVisible()
+        timeline = TimelineIndex.compute(items: visibleItems)
         let visiblePaths = Set(visibleItems.map(\.path))
         selectedPaths = selectedPaths.filter(visiblePaths.contains)
         if let openPath {

@@ -163,18 +163,28 @@ struct MicroGridView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 2) {
-                    ForEach(vm.visibleItems, id: \.path) { item in
-                        ThumbCell(item: item, vm: vm,
-                                  isSelected: vm.selectedPaths.contains(item.path),
-                                  showsCheckmark: vm.selectedPaths.count > 1
-                                      && vm.selectedPaths.contains(item.path),
-                                  isLive: vm.isLive(item),
-                                  side: CGFloat(vm.density.rawValue))
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 2) {
+                        ForEach(vm.visibleItems, id: \.path) { item in
+                            ThumbCell(item: item, vm: vm,
+                                      isSelected: vm.selectedPaths.contains(item.path),
+                                      showsCheckmark: vm.selectedPaths.count > 1
+                                          && vm.selectedPaths.contains(item.path),
+                                      isLive: vm.isLive(item),
+                                      side: CGFloat(vm.density.rawValue))
+                                .id(item.path)
+                        }
+                    }
+                    .padding(2)
+                }
+                .overlay(alignment: .trailing) {
+                    if vm.timeline.count >= 2 {
+                        TimelineRail(buckets: vm.timeline) { path in
+                            proxy.scrollTo(path, anchor: .top)
+                        }
                     }
                 }
-                .padding(2)
             }
         }
     }
