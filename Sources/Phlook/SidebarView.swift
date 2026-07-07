@@ -121,6 +121,11 @@ private struct DateRangeControl: View {
                                 applyRange()
                             }
                     }
+                    if vm.dateRange.isActive {
+                        Text("\(vm.visibleItems.count, format: .number) items in range")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .onAppear { syncToFullRangeIfInactive() }
                 .onChange(of: months.count) { _, _ in syncToFullRangeIfInactive() }
