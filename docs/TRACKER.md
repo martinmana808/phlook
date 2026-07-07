@@ -10,8 +10,8 @@ States: ☐ queued · 🔨 in progress · ✅ shipped (merged to main) · 🧪 b
 | 3 | Grid densities (micro/medium/large) | ✅ | wave2 §3 | |
 | 4 | Timeline scrubber rail | ✅ | wave2 §4 | Grok-style right edge |
 | 5 | Hover-scrub video previews | ✅ | wave2 §5 | |
-| 6 | Left sidebar (sections + date range) | 🧪 | sidebar-hidden spec | includes Screenshots/Selfies detection |
-| 7 | Hidden (Photos-style, auth-gated) | 🧪 | sidebar-hidden spec | LocalAuthentication (Touch ID / password) to open Hidden |
+| 6 | Left sidebar (sections + date range) | ✅ | sidebar-hidden spec | includes Screenshots/Selfies detection |
+| 7 | Hidden (Photos-style, auth-gated) | ✅ | sidebar-hidden spec | LocalAuthentication (Touch ID / password) to open Hidden |
 | 8 | Device browser (phone thumbnails, NEW vs imported) | ☐ | — | folds in per-item import selection (#9) |
 | 9 | Import selection | ☐ | — | subset of #8 |
 | 10 | Live poster-frame picker | ☐ | — | first file-writing feature; own safety design |
@@ -21,6 +21,12 @@ States: ☐ queued · 🔨 in progress · ✅ shipped (merged to main) · 🧪 b
 | 14 | Dedup finder | ☐ | — | content-hash + review UI |
 
 Build order (user-approved 2026-07-07): **#1–5 → #6+7 → rest later.**
+
+| 15 | Viewer zoom animation (grid↔full-screen, Photos-style) | ☐ | — | |
+| 16 | Viewer zoom slider | ☐ | — | |
+| 17 | Years / Months / All Photos views | ☐ | — | Photos-parity grouping; may supersede rail |
+| 18 | Rail v3 (full-height track, year labels, better density scaling) | 🔨 | — | user dislikes v2 |
+| 19 | Date-range result count | 🔨 | — | |
 
 ## Shipped so far (context)
 
