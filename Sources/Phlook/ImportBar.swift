@@ -14,24 +14,38 @@ struct ImportBar: View {
                 Text("Connecting to \(device) — unlock it and tap Trust…")
                     .font(.caption).foregroundStyle(.secondary)
             }
-        case .ready(let device, let pending):
+        case .ready(let device, let pending, let onDevice, let imported):
             if pending > 0 {
-                Button {
-                    importer.importAllNew()
-                } label: {
-                    Label("Import \(pending) new from \(device)", systemImage: "iphone.and.arrow.forward")
+                VStack(alignment: .leading, spacing: 2) {
+                    Button {
+                        importer.importAllNew()
+                    } label: {
+                        Label("Import \(pending) new from \(device)", systemImage: "iphone.and.arrow.forward")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    Text("\(onDevice) on device · \(imported) already imported")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             } else {
-                Label("\(device): up to date", systemImage: "checkmark.circle")
+                Label("Up to date — \(onDevice) on device, all imported", systemImage: "checkmark.circle")
                     .font(.caption).foregroundStyle(.secondary)
             }
+        case .unreadable(let device):
+            Label("Can't read \(device)'s library — unlock the phone, then unplug/replug.",
+                  systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.secondary)
         case .importing(_, let done, let total):
             HStack(spacing: 6) {
                 ProgressView(value: Double(done), total: Double(max(total, 1)))
                     .frame(width: 120)
                 Text("Importing \(done) of \(total)…").font(.caption)
+                Button("Cancel") {
+                    importer.cancelImport()
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         case .finished, .error:
             EmptyView()   // presented as a sheet by ContentView
@@ -53,7 +67,12 @@ struct ImportResultSheet: View {
                     .textSelection(.enabled)
                 if !failed.isEmpty {
                     Text("Failed downloads (still on the phone):").font(.caption).foregroundStyle(.secondary)
-                    ForEach(failed, id: \.self) { Text($0).font(.caption2) }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(failed, id: \.self) { Text($0).font(.caption2) }
+                        }
+                    }
+                    .frame(maxHeight: 260)
                 }
             case .error(let message):
                 Text("Import problem").font(.headline)
@@ -64,6 +83,6 @@ struct ImportResultSheet: View {
             HStack { Spacer(); Button("Done", action: onDone).keyboardShortcut(.defaultAction) }
         }
         .padding(20)
-        .frame(minWidth: 420)
+        .frame(minWidth: 420, maxHeight: 560)
     }
 }
