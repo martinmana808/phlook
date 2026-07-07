@@ -16,7 +16,7 @@ struct TestFixturesTests {
         try TestFixtures.writeJPEG(at: url, width: 32, height: 32, captureDate: date)
 
         // LibraryScanner.imageMeta reads EXIF DateTimeOriginal — reuse it as the oracle.
-        let (_, _, readBack) = LibraryScanner.imageMeta(url)
+        let (_, _, readBack, _) = LibraryScanner.imageMeta(url)
         #expect(readBack == date)
     }
 }

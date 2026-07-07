@@ -58,13 +58,15 @@ public struct LibraryScanner {
             if let stamp = known[path], stamp.matches(size: size, modifiedAt: mtime) {
                 continue   // unchanged: row stays untouched
             }
-            let (w, h, taken): (Int?, Int?, Date?) = isImage ? Self.imageMeta(url) : (nil, nil, nil)
+            let (w, h, taken, kindFlags): (Int?, Int?, Date?, KindFlags) =
+                isImage ? Self.imageMeta(url) : (nil, nil, nil, [])
             changed.append(MediaItem(
                 path: path, hash: Self.quickHash(url),
                 dateTaken: isImage ? (taken ?? values.creationDate) : nil,
                 fileType: isImage ? "image" : "video",
                 width: w, height: h, lastScanned: Date(),
-                duration: nil, fileSize: size, modifiedAt: mtime))
+                duration: nil, fileSize: size, modifiedAt: mtime,
+                kindFlags: kindFlags.rawValue))
         }
         return (changed, allPaths)
     }
@@ -76,10 +78,13 @@ public struct LibraryScanner {
         return f
     }()
 
-    static func imageMeta(_ url: URL) -> (Int?, Int?, Date?) {
+    /// Opens the CGImageSource once and derives width/height/date AND kind
+    /// flags from the same properties dict — avoids a second file open for
+    /// KindDetector during full extraction.
+    static func imageMeta(_ url: URL) -> (Int?, Int?, Date?, KindFlags) {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
-        else { return (nil, nil, nil) }
+        else { return (nil, nil, nil, []) }
         let w = props[kCGImagePropertyPixelWidth] as? Int
         let h = props[kCGImagePropertyPixelHeight] as? Int
         var date: Date?
@@ -87,7 +92,8 @@ public struct LibraryScanner {
            let s = exif[kCGImagePropertyExifDateTimeOriginal] as? String {
             date = Self.exifDateFormatter.date(from: s)
         }
-        return (w, h, date)
+        let flags = KindDetector.flags(fromProperties: props, ext: url.pathExtension.lowercased())
+        return (w, h, date, flags)
     }
 
     static func quickHash(_ url: URL) -> String? {

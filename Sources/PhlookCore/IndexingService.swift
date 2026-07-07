@@ -36,6 +36,26 @@ public final class IndexingService {
         await VideoMetadataEnricher().enrich(index: index)
     }
 
+    /// Backfill pass for rows predating kind detection (kind_flags == -1
+    /// sentinel, see MediaIndex migration v5): computes screenshot/selfie
+    /// flags via KindDetector and upserts. A missing file is marked 0 (tried,
+    /// don't retry). Mirrors enrichVideos's shape/idempotency.
+    @discardableResult
+    public func detectKinds() async -> Int {
+        let pending = (try? index.kindsNeedingDetection()) ?? []
+        var processed = 0
+        for var item in pending {
+            let url = URL(fileURLWithPath: item.path)
+            item.kindFlags = FileManager.default.fileExists(atPath: url.path)
+                ? KindDetector.flags(forImageAt: url).rawValue
+                : 0
+            item.lastScanned = Date()
+            try? index.upsert(item)
+            processed += 1
+        }
+        return processed
+    }
+
     public func recordImport(device: String, identifier: String) throws {
         try index.recordImport(device: device, identifier: identifier)
     }

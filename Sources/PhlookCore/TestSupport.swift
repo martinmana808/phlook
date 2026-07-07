@@ -5,7 +5,8 @@ import AVFoundation
 import CoreVideo
 
 public enum TestFixtures {
-    public static func writeJPEG(at url: URL, width: Int, height: Int, captureDate: Date? = nil) throws {
+    /// Renders a plain solid-color bitmap shared by the JPEG/PNG fixture writers.
+    private static func solidImage(width: Int, height: Int) throws -> CGImage {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(
             data: nil,
@@ -21,20 +22,67 @@ public enum TestFixtures {
         guard let cgImage = ctx.makeImage() else {
             throw NSError(domain: "TestFixtures", code: 2)
         }
-        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil) else {
-            throw NSError(domain: "TestFixtures", code: 3)
-        }
-        var properties: CFDictionary?
+        return cgImage
+    }
+
+    /// Builds the TIFF/Exif property dictionaries used by both fixture
+    /// writers. `tiffMake` round-trips under `kCGImagePropertyTIFFDictionary`
+    /// for both JPEG and PNG destinations; `lensModel`/`userComment` live
+    /// under the Exif dictionary (verified via CGImageSourceCopyProperties
+    /// round-trip — plain top-level Exif keys, no ExifAux needed).
+    private static func imageProperties(
+        captureDate: Date?, tiffMake: String?, lensModel: String?, userComment: String?
+    ) -> CFDictionary? {
+        var tiffDict: [CFString: Any] = [:]
+        if let tiffMake { tiffDict[kCGImagePropertyTIFFMake] = tiffMake }
+
+        var exifDict: [CFString: Any] = [:]
         if let captureDate {
             let f = DateFormatter()
             f.dateFormat = "yyyy:MM:dd HH:mm:ss"
             f.locale = Locale(identifier: "en_US_POSIX")
-            let exif: [CFString: Any] = [kCGImagePropertyExifDateTimeOriginal: f.string(from: captureDate)]
-            properties = [kCGImagePropertyExifDictionary: exif] as CFDictionary
+            exifDict[kCGImagePropertyExifDateTimeOriginal] = f.string(from: captureDate)
         }
+        if let lensModel { exifDict[kCGImagePropertyExifLensModel] = lensModel }
+        if let userComment { exifDict[kCGImagePropertyExifUserComment] = userComment }
+
+        var properties: [CFString: Any] = [:]
+        if !tiffDict.isEmpty { properties[kCGImagePropertyTIFFDictionary] = tiffDict }
+        if !exifDict.isEmpty { properties[kCGImagePropertyExifDictionary] = exifDict }
+        return properties.isEmpty ? nil : properties as CFDictionary
+    }
+
+    public static func writeJPEG(
+        at url: URL, width: Int, height: Int, captureDate: Date? = nil,
+        tiffMake: String? = nil, lensModel: String? = nil, userComment: String? = nil
+    ) throws {
+        let cgImage = try solidImage(width: width, height: height)
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil) else {
+            throw NSError(domain: "TestFixtures", code: 3)
+        }
+        let properties = imageProperties(
+            captureDate: captureDate, tiffMake: tiffMake, lensModel: lensModel, userComment: userComment)
         CGImageDestinationAddImage(dest, cgImage, properties)
         guard CGImageDestinationFinalize(dest) else {
             throw NSError(domain: "TestFixtures", code: 4)
+        }
+    }
+
+    /// Writes a PNG fixture, optionally embedding a TIFF Make (to opt OUT of
+    /// the screenshot rule, which is "PNG with no camera EXIF") and/or a
+    /// LensModel (for combined screenshot+selfie fixtures).
+    public static func writePNG(
+        at url: URL, width: Int, height: Int, tiffMake: String? = nil, lensModel: String? = nil
+    ) throws {
+        let cgImage = try solidImage(width: width, height: height)
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
+            throw NSError(domain: "TestFixtures", code: 5)
+        }
+        let properties = imageProperties(
+            captureDate: nil, tiffMake: tiffMake, lensModel: lensModel, userComment: nil)
+        CGImageDestinationAddImage(dest, cgImage, properties)
+        guard CGImageDestinationFinalize(dest) else {
+            throw NSError(domain: "TestFixtures", code: 6)
         }
     }
 
