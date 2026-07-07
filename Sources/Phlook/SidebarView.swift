@@ -5,10 +5,9 @@ import PhlookCore
 /// plus a From–To date-range control at the bottom.
 ///
 /// Selecting the Hidden row while locked does NOT switch scope directly —
-/// it triggers `HiddenGate.authenticate()` and only flips `vm.scope = .hidden`
-/// on success (setting `hiddenUnlocked` first so `scope`'s didSet doesn't see
-/// a locked `.hidden` and immediately relock/empty it). On failure the
-/// selection reverts to whatever scope was showing.
+/// it delegates to `vm.unlockHidden()`, which authenticates and only flips
+/// `vm.scope = .hidden` on success. On failure the selection reverts to
+/// whatever scope was showing.
 struct SidebarView: View {
     @ObservedObject var vm: LibraryViewModel
 
@@ -21,20 +20,7 @@ struct SidebarView: View {
                     vm.scope = newValue
                     return
                 }
-                guard !vm.hiddenUnlocked else {
-                    vm.scope = .hidden
-                    return
-                }
-                Task {
-                    if await HiddenGate.authenticate() {
-                        vm.hiddenUnlocked = true
-                        vm.scope = .hidden
-                    }
-                    // Failure: leave `vm.scope` untouched (List's selection
-                    // binding already got a "set" call, but since we never
-                    // wrote a new value into `vm.scope`, the next body
-                    // re-render reasserts the old tag via `get`).
-                }
+                Task { await vm.unlockHidden() }
             }
         )
     }
@@ -87,16 +73,17 @@ struct SidebarView: View {
     }
 }
 
-/// From–To date-range sliders over the library's dated months. `vm.timeline`
-/// is newest-first; this view reverses the dated buckets to oldest-first so
-/// the sliders read left-to-right chronologically.
+/// From–To date-range sliders over the library's dated months. `vm.fullTimeline`
+/// (unaffected by `vm.dateRange` itself — see its declaration) is newest-first;
+/// this view reverses the dated buckets to oldest-first so the sliders read
+/// left-to-right chronologically.
 private struct DateRangeControl: View {
     @ObservedObject var vm: LibraryViewModel
     @State private var fromIndex: Double = 0
     @State private var toIndex: Double = 0
 
     private var months: [TimelineBucket] {
-        vm.timeline.filter { $0.monthStart != nil }.reversed()
+        vm.fullTimeline.filter { $0.monthStart != nil }.reversed()
     }
 
     private var lastIndex: Int { max(months.count - 1, 0) }

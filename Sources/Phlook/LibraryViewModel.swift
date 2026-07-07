@@ -18,6 +18,12 @@ final class LibraryViewModel: ObservableObject {
     @Published var items: [MediaItem] = []
     @Published private(set) var visibleItems: [MediaItem] = []
     @Published private(set) var timeline: [TimelineBucket] = []
+    /// Timeline computed over the same scope/hidden-lock pipeline as
+    /// `visibleItems` but WITHOUT the `dateRange` stage — this is the domain
+    /// the date-range sliders drag over. If it were derived from the
+    /// date-filtered `visibleItems` instead, the slider's own filtering would
+    /// shrink its domain on every drag and it could never widen back out.
+    @Published private(set) var fullTimeline: [TimelineBucket] = []
     @Published var isIndexing = false
     @Published var viewerIndex: Int?
     @Published var sidebarOpen = false
@@ -30,6 +36,7 @@ final class LibraryViewModel: ObservableObject {
             clearSelection()
             rebuildVisible()
             timeline = TimelineIndex.compute(items: visibleItems)
+            fullTimeline = TimelineIndex.compute(items: scopedItems())
         }
     }
     @Published var dateRange = DateRangeFilter() {
@@ -40,12 +47,33 @@ final class LibraryViewModel: ObservableObject {
         }
     }
     /// Touch ID / password gate for `.hidden`; relocked whenever `scope`
-    /// moves away from `.hidden` (see `scope`'s didSet above).
-    @Published var hiddenUnlocked = false {
+    /// moves away from `.hidden` (see `scope`'s didSet above). Callers unlock
+    /// via `unlockHidden()`, which keeps auth + scope switch + relock
+    /// bookkeeping in one place instead of duplicated across call sites.
+    @Published private(set) var hiddenUnlocked = false {
         didSet {
             guard hiddenUnlocked != oldValue else { return }
             rebuildVisible()
+            fullTimeline = TimelineIndex.compute(items: scopedItems())
         }
+    }
+
+    /// Authenticates (if needed) and switches to `.hidden` on success. If
+    /// already unlocked, just switches scope. On failure, leaves `scope`
+    /// untouched but nudges SwiftUI to reassert the sidebar's current
+    /// selection highlight (the List's selection binding already "set" the
+    /// tapped row optimistically).
+    @MainActor
+    func unlockHidden() async -> Bool {
+        guard !hiddenUnlocked else { scope = .hidden; return true }
+        let ok = await HiddenGate.authenticate()
+        if ok {
+            hiddenUnlocked = true
+            scope = .hidden
+        } else {
+            objectWillChange.send()   // reassert sidebar selection highlight
+        }
+        return ok
     }
     @Published private(set) var scopeCounts: [LibraryScope: Int] = [:]
     @Published private(set) var livePairs: LivePairs = .empty
@@ -142,6 +170,7 @@ final class LibraryViewModel: ObservableObject {
         scopeCounts = Self.computeScopeCounts(items: new, livePairs: livePairs)
         rebuildVisible()
         timeline = TimelineIndex.compute(items: visibleItems)
+        fullTimeline = TimelineIndex.compute(items: scopedItems())
         let visiblePaths = Set(visibleItems.map(\.path))
         selectedPaths = selectedPaths.filter(visiblePaths.contains)
         if let openPath {
@@ -163,14 +192,18 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private func rebuildVisible() {
-        guard !(scope == .hidden && !hiddenUnlocked) else {
-            visibleItems = []
-            return
-        }
+        visibleItems = scopedItems().filter { dateRange.matches($0) }
+    }
+
+    /// Items after dropping paired motion files and applying the current
+    /// scope + hidden-lock rule, but BEFORE the `dateRange` stage. Shared by
+    /// `visibleItems` (which adds the date filter) and `fullTimeline` (which
+    /// doesn't) so the date-range sliders' domain never depends on the
+    /// sliders' own current position.
+    private func scopedItems() -> [MediaItem] {
+        guard !(scope == .hidden && !hiddenUnlocked) else { return [] }
         let unhidden = items.filter { !livePairs.hiddenVideoPaths.contains($0.path) }
-        visibleItems = unhidden
-            .filter { scope.matches($0, livePairs: livePairs) }
-            .filter { dateRange.matches($0) }
+        return unhidden.filter { scope.matches($0, livePairs: livePairs) }
     }
 
     func openViewer(_ item: MediaItem) {

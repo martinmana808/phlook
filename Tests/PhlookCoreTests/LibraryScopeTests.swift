@@ -138,20 +138,25 @@ struct DateRangeFilterTests {
     @Test func upperBoundExcludesLaterDates() {
         let upper = Date(timeIntervalSince1970: 2_000_000)
         let filter = DateRangeFilter(upper: upper)
-        #expect(filter.matches(mkItem(dateTaken: upper)))
         #expect(filter.matches(mkItem(dateTaken: upper.addingTimeInterval(-1))))
+        #expect(!filter.matches(mkItem(dateTaken: upper)))
         #expect(!filter.matches(mkItem(dateTaken: upper.addingTimeInterval(1))))
     }
 
-    @Test func bothBoundsFormInclusiveWindow() {
+    @Test func bothBoundsFormWindowWithExclusiveUpper() {
         let lower = Date(timeIntervalSince1970: 1_000_000)
         let upper = Date(timeIntervalSince1970: 2_000_000)
         let filter = DateRangeFilter(lower: lower, upper: upper)
         #expect(filter.matches(mkItem(dateTaken: lower)))
-        #expect(filter.matches(mkItem(dateTaken: upper)))
         let mid = Date(timeIntervalSince1970: (lower.timeIntervalSince1970 + upper.timeIntervalSince1970) / 2)
         #expect(filter.matches(mkItem(dateTaken: mid)))
         #expect(!filter.matches(mkItem(dateTaken: lower.addingTimeInterval(-1))))
         #expect(!filter.matches(mkItem(dateTaken: upper.addingTimeInterval(1))))
+    }
+
+    @Test func upperBoundExactlyAtBoundaryIsExcluded() {
+        let upper = Date(timeIntervalSince1970: 2_000_000)
+        let filter = DateRangeFilter(upper: upper)
+        #expect(!filter.matches(mkItem(dateTaken: upper)))
     }
 }

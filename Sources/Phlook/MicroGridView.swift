@@ -178,6 +178,14 @@ struct MicroGridView: View {
         .padding(.vertical, 8)
     }
 
+    private var emptyStateText: String {
+        switch vm.scope {
+        case .all: "Nothing to show"
+        case .hidden: "No hidden items"
+        default: "No \(vm.scope.rawValue.lowercased()) to show"
+        }
+    }
+
     @ViewBuilder private var content: some View {
         if vm.scope == .hidden && !vm.hiddenUnlocked {
             VStack(spacing: 12) {
@@ -187,12 +195,7 @@ struct MicroGridView: View {
                 Text("Hidden items are locked")
                     .foregroundStyle(.secondary)
                 Button("Authenticate") {
-                    Task {
-                        if await HiddenGate.authenticate() {
-                            vm.hiddenUnlocked = true
-                            vm.scope = .hidden
-                        }
-                    }
+                    Task { await vm.unlockHidden() }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -206,7 +209,7 @@ struct MicroGridView: View {
                     Text("No media found in ~/Pictures/PHLOOK")
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("No \(vm.scope.rawValue.lowercased()) to show")
+                    Text(emptyStateText)
                         .foregroundStyle(.secondary)
                 }
             }
