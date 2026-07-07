@@ -10,9 +10,11 @@ final class HoverPreviewCoordinator: ObservableObject {
     private(set) var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
     private var pendingTask: Task<Void, Never>?
+    private var pendingPath: String?
 
     func hoverBegan(path: String) {
         pendingTask?.cancel()
+        pendingPath = path
         pendingTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled else { return }
@@ -21,11 +23,15 @@ final class HoverPreviewCoordinator: ObservableObject {
     }
 
     func hoverEnded(path: String) {
-        pendingTask?.cancel()
+        if pendingPath == path {
+            pendingTask?.cancel()
+            pendingPath = nil
+        }
         if activePath == path { stop() }
     }
 
     private func start(path: String) {
+        pendingPath = nil
         stop()
         let item = AVPlayerItem(url: URL(fileURLWithPath: path))
         let queue = AVQueuePlayer()
@@ -65,6 +71,9 @@ final class AVPlayerLayerView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override func layout() {
         super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         playerLayer.frame = bounds
+        CATransaction.commit()
     }
 }

@@ -61,6 +61,7 @@ final class LibraryViewModel: ObservableObject {
     private let thumbCache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.countLimit = 2_000
+        cache.totalCostLimit = 256 * 1024 * 1024
         return cache
     }()
 
@@ -157,7 +158,8 @@ final class LibraryViewModel: ObservableObject {
         if let cached = thumbCache.object(forKey: key) { return cached }
         guard let url = await service.thumbnails.thumbnailURL(for: item, size: size) else { return nil }
         guard let image = NSImage(contentsOf: url) else { return nil }
-        thumbCache.setObject(image, forKey: key)
+        let cost = Int(image.size.width * image.size.height * 4)
+        thumbCache.setObject(image, forKey: key, cost: cost)
         return image
     }
 

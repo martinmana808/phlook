@@ -47,6 +47,11 @@ public struct LibraryScanner {
                   values.isRegularFile == true else { continue }
             let relativeComponents = url.pathComponents.suffix(from: realDepth)
             let path = relativeComponents.reduce(root) { $0.appendingPathComponent($1) }.path
+            // Self-verifying invariant: the enumerator-form rebasing above
+            // assumes the reconstructed path still resolves to the same file
+            // the enumerator saw. Debug-only (compiles out in release).
+            assert(FileManager.default.fileExists(atPath: path),
+                   "scanner path-identity broken: \(path)")
             allPaths.insert(path)
             let size = values.fileSize ?? 0
             let mtime = values.contentModificationDate ?? Date.distantPast
