@@ -4,6 +4,11 @@ import PhlookCore
 struct ThumbCell: View {
     let item: MediaItem
     let vm: LibraryViewModel
+    // Passed as plain values (not read via `vm` in body): SwiftUI diffs the
+    // cell's stored properties to decide whether to re-render, and `vm` is a
+    // reference that never "changes" — rings/badges would go stale otherwise.
+    let isSelected: Bool
+    let isLive: Bool
     @State private var image: NSImage?
 
     var body: some View {
@@ -17,7 +22,7 @@ struct ThumbCell: View {
         .frame(width: 80, height: 80)
         .clipped()
         .overlay(alignment: .bottomTrailing) {
-            if item.fileType == "video", !vm.isLive(item),
+            if item.fileType == "video", !isLive,
                let text = DurationFormatter.string(seconds: item.duration) {
                 Text(text)
                     .font(.caption2.monospacedDigit())
@@ -28,7 +33,7 @@ struct ThumbCell: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if item.fileType == "video", !vm.isLive(item) {
+            if item.fileType == "video", !isLive {
                 Image(systemName: "play.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(.white)
@@ -37,7 +42,7 @@ struct ThumbCell: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if vm.isLive(item) {
+            if isLive {
                 Image(systemName: "livephoto")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
@@ -46,12 +51,12 @@ struct ThumbCell: View {
             }
         }
         .overlay {
-            if vm.selectedPaths.contains(item.path) {
+            if isSelected {
                 Rectangle().strokeBorder(Color.accentColor, lineWidth: 3)
             }
         }
         .overlay(alignment: .topTrailing) {
-            if vm.selectedPaths.contains(item.path) {
+            if isSelected {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.white, Color.accentColor)
                     .padding(3)
@@ -148,7 +153,9 @@ struct MicroGridView: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 2) {
                     ForEach(vm.visibleItems, id: \.path) { item in
-                        ThumbCell(item: item, vm: vm)
+                        ThumbCell(item: item, vm: vm,
+                                  isSelected: vm.selectedPaths.contains(item.path),
+                                  isLive: vm.isLive(item))
                     }
                 }
                 .padding(2)
