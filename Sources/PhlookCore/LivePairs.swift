@@ -26,17 +26,24 @@ public struct LivePairs: Equatable {
     }
 
     public static func compute(items: [MediaItem]) -> LivePairs {
-        var imageByStem: [String: String] = [:]
-        for item in items where item.fileType == "image" {
-            imageByStem[stem(item.path)] = item.path
+        struct Group { var images: [String] = []; var shortVideos: [String] = [] }
+        var groups: [String: Group] = [:]
+        for item in items {
+            let key = stem(item.path)
+            if item.fileType == "image" {
+                groups[key, default: Group()].images.append(item.path)
+            } else if item.fileType == "video",
+                      let d = item.duration, d > 0, d <= maxMotionSeconds {
+                groups[key, default: Group()].shortVideos.append(item.path)
+            }
         }
         var hidden: Set<String> = []
         var byImage: [String: String] = [:]
-        for item in items where item.fileType == "video" {
-            guard let d = item.duration, d > 0, d <= maxMotionSeconds,
-                  let imagePath = imageByStem[stem(item.path)] else { continue }
-            hidden.insert(item.path)
-            byImage[imagePath] = item.path
+        // Only an unambiguous group — exactly one still, exactly one short
+        // motion file — forms a live pair. Anything else stays fully visible.
+        for group in groups.values where group.images.count == 1 && group.shortVideos.count == 1 {
+            hidden.insert(group.shortVideos[0])
+            byImage[group.images[0]] = group.shortVideos[0]
         }
         return LivePairs(hiddenVideoPaths: hidden, videoByImagePath: byImage)
     }

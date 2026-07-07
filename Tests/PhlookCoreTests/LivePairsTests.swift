@@ -58,4 +58,23 @@ struct LivePairsTests {
         ])
         #expect(pairs.hiddenVideoPaths.isEmpty)
     }
+
+    @Test func ambiguousTwoImagesOneVideoPairsNothing() {
+        let pairs = LivePairs.compute(items: [
+            item("/a/X.HEIC", type: "image"),
+            item("/a/X.PNG", type: "image"),
+            item("/a/X.MOV", type: "video", duration: 2),
+        ])
+        #expect(pairs.hiddenVideoPaths.isEmpty)
+        #expect(pairs.videoPath(forImagePath: "/a/X.HEIC") == nil)
+    }
+
+    @Test func ambiguousOneImageTwoShortVideosPairsNothing() {
+        let pairs = LivePairs.compute(items: [
+            item("/a/X.HEIC", type: "image"),
+            item("/a/X.MOV", type: "video", duration: 2),
+            item("/a/X.M4V", type: "video", duration: 3),
+        ])
+        #expect(pairs.hiddenVideoPaths.isEmpty)   // never hide an unreachable file
+    }
 }
