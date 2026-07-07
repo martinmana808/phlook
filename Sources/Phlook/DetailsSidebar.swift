@@ -4,6 +4,7 @@ import PhlookCore
 /// The metadata rows shared by the viewer sidebar and the grid's details modal.
 struct DetailsRows: View {
     let details: MediaDetails
+    var motionPath: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -11,7 +12,17 @@ struct DetailsRows: View {
             if let dims = details.dimensions { row("Dimensions", dims) }
             if let dur = details.duration { row("Duration", dur) }
             if let size = details.fileSize { row("Size", size) }
-            row("Kind", details.kind)
+            row("Kind", motionPath != nil ? "Live Photo (\(details.kind))" : details.kind)
+            if let motionPath {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Live Photo motion").font(.caption).foregroundStyle(.secondary)
+                    Text((motionPath as NSString).lastPathComponent).font(.caption2)
+                    Button("Show Motion File in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting(
+                            [URL(fileURLWithPath: motionPath)])
+                    }.controlSize(.small)
+                }
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Path").font(.caption).foregroundStyle(.secondary)
                 Text(details.path)
@@ -45,6 +56,7 @@ struct DetailsRows: View {
 /// ⓘ sits underneath the panel once it is open, so it can't be the way out.
 struct DetailsSidebar: View {
     let item: MediaItem
+    var motionPath: String? = nil
     let onClose: () -> Void
     private var details: MediaDetails { .from(item: item) }
 
@@ -60,7 +72,7 @@ struct DetailsSidebar: View {
                 .buttonStyle(.plain)
                 .help("Close details (⌘I)")
             }
-            DetailsRows(details: details)
+            DetailsRows(details: details, motionPath: motionPath)
             Spacer()
         }
         .padding(16)
@@ -74,13 +86,14 @@ struct DetailsSidebar: View {
 /// the full-app-screen viewer.
 struct DetailsModal: View {
     let item: MediaItem
+    var motionPath: String? = nil
     let onDone: () -> Void
     private var details: MediaDetails { .from(item: item) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(details.filename).font(.headline).lineLimit(2)
-            DetailsRows(details: details)
+            DetailsRows(details: details, motionPath: motionPath)
             HStack {
                 Spacer()
                 Button("Done", action: onDone)

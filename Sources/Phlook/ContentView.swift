@@ -26,7 +26,10 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.15), value: vm.viewerIndex != nil)
         .sheet(item: $vm.detailsItem) { item in
-            DetailsModal(item: item) { vm.detailsItem = nil }
+            DetailsModal(
+                item: item,
+                motionPath: vm.livePairs.videoPath(forImagePath: item.path)
+            ) { vm.detailsItem = nil }
         }
         .sheet(isPresented: Binding(
             get: { showResult },

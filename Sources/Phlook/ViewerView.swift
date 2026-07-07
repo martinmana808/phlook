@@ -6,6 +6,7 @@ struct ViewerView: View {
     @ObservedObject var vm: LibraryViewModel
     @State private var monitor = ViewerInputMonitor()
     @State private var player: AVPlayer?
+    @State private var livePlayer: AVPlayer?
     @State private var image: NSImage?
     @State private var missing = false
 
@@ -39,6 +40,7 @@ struct ViewerView: View {
             monitor.onRight = { vm.step(+1) }
             monitor.onEscape = { vm.closeViewer() }
             monitor.onToggleSidebar = { vm.sidebarOpen.toggle() }
+            monitor.onDelete = { if let item = vm.currentItem { vm.requestTrash([item]) } }
             monitor.start()
         }
         .onDisappear {
@@ -50,8 +52,12 @@ struct ViewerView: View {
 
     @ViewBuilder private var sidebarHost: some View {
         if vm.sidebarOpen, let item = vm.currentItem {
-            DetailsSidebar(item: item, onClose: { vm.sidebarOpen = false })
-                .transition(.move(edge: .trailing))
+            DetailsSidebar(
+                item: item,
+                motionPath: vm.livePairs.videoPath(forImagePath: item.path),
+                onClose: { vm.sidebarOpen = false }
+            )
+            .transition(.move(edge: .trailing))
         }
     }
 
@@ -66,6 +72,8 @@ struct ViewerView: View {
             // overlay aborts in runtime metadata instantiation on this
             // macOS/CLT-SDK combination (verified crash report 2026-07-06).
             PlayerHostView(player: player)
+        } else if let livePlayer {
+            PlayerHostView(player: livePlayer)
         } else if let image {
             Image(nsImage: image).resizable().scaledToFit()
         } else {
@@ -110,6 +118,14 @@ struct ViewerView: View {
                     }
                 }
                 Spacer()
+                if let item = vm.currentItem, vm.isLive(item) {
+                    Button {
+                        playLive(for: item)
+                    } label: {
+                        Label("LIVE", systemImage: "livephoto")
+                            .foregroundStyle(.white)
+                    }
+                }
                 Button { vm.sidebarOpen.toggle() } label: {
                     Image(systemName: "info.circle").foregroundStyle(.white)
                 }
@@ -121,9 +137,27 @@ struct ViewerView: View {
         }
     }
 
+    private func playLive(for item: MediaItem) {
+        guard let motion = vm.livePairs.videoPath(forImagePath: item.path) else { return }
+        let player = AVPlayer(url: URL(fileURLWithPath: motion))
+        livePlayer = player
+        var token: NSObjectProtocol?
+        token = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem, queue: .main) { _ in
+            Task { @MainActor in
+                self.livePlayer = nil
+                if let token { NotificationCenter.default.removeObserver(token) }
+            }
+        }
+        player.play()
+    }
+
     private func loadCurrent() async {
         player?.pause()
         player = nil
+        livePlayer?.pause()
+        livePlayer = nil
         image = nil
         missing = false
         guard let item = vm.currentItem else { return }

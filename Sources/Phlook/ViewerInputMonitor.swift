@@ -9,6 +9,7 @@ final class ViewerInputMonitor {
     var onRight: () -> Void = {}
     var onEscape: () -> Void = {}
     var onToggleSidebar: () -> Void = {}
+    var onDelete: () -> Void = {}
 
     private var monitor: Any?
     private var accumulatedX: CGFloat = 0
@@ -28,6 +29,7 @@ final class ViewerInputMonitor {
                 case 123: self.onLeft(); return nil    // ←
                 case 124: self.onRight(); return nil   // →
                 case 53:  self.onEscape(); return nil  // Esc
+                case 51, 117: self.onDelete(); return nil  // Delete / Forward Delete
                 default:  return event
                 }
             case .scrollWheel:
