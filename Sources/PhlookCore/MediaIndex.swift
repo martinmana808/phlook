@@ -35,7 +35,9 @@ public final class MediaIndex {
                     last_scanned TEXT,
                     duration REAL,
                     file_size INTEGER,
-                    modified_at TEXT
+                    modified_at TEXT,
+                    hidden INTEGER NOT NULL DEFAULT 0,
+                    kind_flags INTEGER NOT NULL DEFAULT 0
                 );
             """)
             // Databases created before the duration column existed:
@@ -73,6 +75,20 @@ public final class MediaIndex {
                 }
                 try db.execute(sql: "PRAGMA user_version = 4")
             }
+            if version < 5 {
+                let cols = try db.columns(in: "files").map(\.name)
+                if !cols.contains("hidden") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+                }
+                if !cols.contains("kind_flags") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN kind_flags INTEGER NOT NULL DEFAULT 0")
+                }
+                // Pre-existing rows: mark kind unknown so the detector picks
+                // them up, then exclude videos (never screenshots/selfies).
+                try db.execute(sql: "UPDATE files SET kind_flags = -1")
+                try db.execute(sql: "UPDATE files SET kind_flags = 0 WHERE file_type = 'video'")
+                try db.execute(sql: "PRAGMA user_version = 5")
+            }
         }
     }
 
@@ -86,13 +102,21 @@ public final class MediaIndex {
                     existing.width = item.width
                     existing.height = item.height
                     existing.duration = item.duration
+                    // hidden survives a file replacement: user intent outlives content.
+                    existing.kindFlags = item.kindFlags
                 } else {
                     // Same content: never wipe enriched values with a scan's nils.
                     existing.dateTaken = item.dateTaken ?? existing.dateTaken
                     existing.width = item.width ?? existing.width
                     existing.height = item.height ?? existing.height
                     existing.duration = item.duration ?? existing.duration
+                    // Scan may not know kind: keep existing unless incoming has
+                    // real info, or existing is still the unknown sentinel.
+                    existing.kindFlags = item.kindFlags != 0 ? item.kindFlags
+                        : (existing.kindFlags == -1 ? item.kindFlags : existing.kindFlags)
                 }
+                // hidden is never touched by upsert in either branch — only
+                // setHidden writes it, so a rescan or file replacement can't unhide.
                 // Scan-authoritative in both branches: nil-coalescing is safe
                 // because scan items always carry stamps, and enrichment
                 // write-backs carry the row's own non-nil values.
@@ -134,6 +158,14 @@ public final class MediaIndex {
         }
     }
 
+    /// Test support: force a row's kind_flags directly (simulate pre-v5 sentinel state).
+    func setKindFlagsForTesting(path: String, flags: Int) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE files SET kind_flags = ? WHERE path = ?",
+                           arguments: [flags, path])
+        }
+    }
+
     public func item(forPath path: String) throws -> MediaItem? {
         try dbQueue.read { db in
             try MediaItem.filter(MediaItem.Columns.path == path).fetchOne(db)
@@ -171,6 +203,33 @@ public final class MediaIndex {
                 try db.execute(sql: "DELETE FROM files WHERE path IN (\(placeholders))",
                                arguments: StatementArguments(chunk))
             }
+        }
+    }
+
+    /// Set (or clear) the hidden flag for the given paths. Chunked to stay
+    /// under SQLite's parameter limit on large selections.
+    public func setHidden(paths: [String], hidden: Bool) throws {
+        guard !paths.isEmpty else { return }
+        try dbQueue.write { db in
+            for chunk in stride(from: 0, to: paths.count, by: 500).map({
+                Array(paths[$0..<min($0 + 500, paths.count)])
+            }) {
+                let placeholders = repeatElement("?", count: chunk.count).joined(separator: ",")
+                let args: [DatabaseValueConvertible?] = [hidden] + chunk
+                try db.execute(sql: "UPDATE files SET hidden = ? WHERE path IN (\(placeholders))",
+                               arguments: StatementArguments(args))
+            }
+        }
+    }
+
+    /// Image rows whose kind (screenshot/selfie/etc.) hasn't been detected
+    /// yet. Videos are never screenshots/selfies, so they're excluded.
+    public func kindsNeedingDetection() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.fetchAll(db, sql: """
+                SELECT * FROM files
+                WHERE kind_flags = -1 AND file_type = 'image'
+            """)
         }
     }
 
