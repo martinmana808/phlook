@@ -48,7 +48,7 @@ No way to remove media from inside PHLOOK. Files-first answer: the macOS **Trash
 ### Delete flow
 
 - Context menu on a cell: if the clicked item is NOT in the current selection, the selection becomes just that item (Photos behavior). Menu item: `Move to Trash` (title shows count when >1: `Move 5 Items to Trash`).
-- Delete/Backspace key in the grid deletes the selection; in the viewer it deletes the current item and advances (clamps at end; closes if library empties).
+- Delete/Backspace key in the grid deletes the selection; in the viewer it deletes the current item and closes back to the grid (advancing in place is a later refinement).
 - Confirmation: a `confirmationDialog` always ("Move N item(s) to Trash? You can restore them from the Trash."). Destructive-styled button.
 - **Live-pair aware**: deleting a paired still ALSO trashes its motion file (the pair is one user-facing item). Deleting a lone video trashes just it.
 - Mechanics (`PhlookCore.LibraryTrasher`): for each path (plus paired motion paths), `FileManager.trashItem(at:)`; on success collect the path; per-item failure recorded, does not abort the batch. Then `MediaIndex.delete(paths:)` removes the rows of successfully-trashed files, and the UI refreshes from the DB (no full rescan needed). Thumbnails cache entries are left to age out.
