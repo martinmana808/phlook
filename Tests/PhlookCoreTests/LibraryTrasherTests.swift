@@ -62,4 +62,21 @@ struct LibraryTrasherTests {
         #expect(outcome.failures.count == 1)
         #expect(try index.item(forPath: bad) != nil)            // row kept
     }
+
+    @Test func indexDeleteFailureSurfacesInOutcome() throws {
+        let (dir, index) = try makeWorld()
+        let a = try addFile(dir, "a.jpg", index)
+        let dbPath = dir.appendingPathComponent("t.db")
+
+        // Break the index by replacing the db file with a directory,
+        // so delete() will fail when it tries to write.
+        try FileManager.default.removeItem(at: dbPath)
+        try FileManager.default.createDirectory(at: dbPath, withIntermediateDirectories: false)
+
+        let outcome = LibraryTrasher.trash(paths: [a], index: index)
+        #expect(outcome.trashedPaths == [a])           // file was trashed
+        #expect(outcome.failures.count == 1)           // but index update failed
+        #expect(outcome.failures[0].contains("index update failed"))
+        #expect(outcome.failures[0].contains("grid until the next rescan"))
+    }
 }

@@ -26,7 +26,14 @@ public enum LibraryTrasher {
                 failures.append("\(url.lastPathComponent) — \(error.localizedDescription)")
             }
         }
-        try? index.delete(paths: trashed)
+        do {
+            try index.delete(paths: trashed)
+        } catch {
+            // Files are already in the Trash; rows will self-heal on the next
+            // rescan (deleteMissing), but the user should know the grid may
+            // briefly show ghosts.
+            failures.append("index update failed (\(error.localizedDescription)) — deleted items may linger in the grid until the next rescan")
+        }
         return TrashOutcome(trashedPaths: trashed, failures: failures)
     }
 }
