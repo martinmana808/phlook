@@ -144,9 +144,9 @@ struct MicroGridView: View {
 
     private var filterBar: some View {
         HStack(spacing: 16) {
-            Picker("Filter", selection: $vm.filter) {
-                ForEach(MediaFilter.allCases) { f in
-                    Text(f.rawValue).tag(f)
+            Picker("Filter", selection: $vm.scope) {
+                ForEach([LibraryScope.all, .photos, .videos]) { s in
+                    Text(s.rawValue).tag(s)
                 }
             }
             .pickerStyle(.segmented)
@@ -176,7 +176,7 @@ struct MicroGridView: View {
                     Text("No media found in ~/Pictures/PHLOOK")
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("No \(vm.filter.rawValue.lowercased()) to show")
+                    Text("No \(vm.scope.rawValue.lowercased()) to show")
                         .foregroundStyle(.secondary)
                 }
             }

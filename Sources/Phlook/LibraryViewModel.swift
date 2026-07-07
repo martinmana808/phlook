@@ -1,22 +1,6 @@
 import SwiftUI
 import PhlookCore
 
-enum MediaFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case photos = "Photos"
-    case videos = "Videos"
-
-    var id: String { rawValue }
-
-    func matches(_ item: MediaItem) -> Bool {
-        switch self {
-        case .all: return true
-        case .photos: return item.fileType == "image"
-        case .videos: return item.fileType == "video"
-        }
-    }
-}
-
 enum GridDensity: Int, CaseIterable, Identifiable {
     case micro = 80, medium = 160, large = 240
     var id: Int { rawValue }
@@ -38,15 +22,32 @@ final class LibraryViewModel: ObservableObject {
     @Published var viewerIndex: Int?
     @Published var sidebarOpen = false
     @Published var detailsItem: MediaItem?   // grid "View Details" modal
-    @Published var filter: MediaFilter = .all {
+    @Published var scope: LibraryScope = .all {
         didSet {
-            guard filter != oldValue else { return }
+            guard scope != oldValue else { return }
+            if oldValue == .hidden { hiddenUnlocked = false }
             closeViewer()
+            clearSelection()
             rebuildVisible()
             timeline = TimelineIndex.compute(items: visibleItems)
-            clearSelection()
         }
     }
+    @Published var dateRange = DateRangeFilter() {
+        didSet {
+            guard dateRange != oldValue else { return }
+            rebuildVisible()
+            timeline = TimelineIndex.compute(items: visibleItems)
+        }
+    }
+    /// Touch ID / password gate for `.hidden`; relocked whenever `scope`
+    /// moves away from `.hidden` (see `scope`'s didSet above).
+    @Published var hiddenUnlocked = false {
+        didSet {
+            guard hiddenUnlocked != oldValue else { return }
+            rebuildVisible()
+        }
+    }
+    @Published private(set) var scopeCounts: [LibraryScope: Int] = [:]
     @Published private(set) var livePairs: LivePairs = .empty
     @Published var selectedPaths: Set<String> = []
     @Published var pendingTrash: [MediaItem]?     // confirmation dialog payload
@@ -114,6 +115,19 @@ final class LibraryViewModel: ObservableObject {
                     self.refreshItems(final)
                 }
             }
+
+            // 4. Backfill screenshot/selfie kind flags, then refresh once more.
+            let detected = await service.detectKinds()
+            if detected > 0 {
+                let final = (try? service.items()) ?? []
+                await MainActor.run {
+                    guard epoch == self.refreshEpoch else {
+                        self.refreshItems((try? service.items()) ?? [])
+                        return
+                    }
+                    self.refreshItems(final)
+                }
+            }
             await MainActor.run { self.isIndexing = false }
         }
     }
@@ -125,6 +139,7 @@ final class LibraryViewModel: ObservableObject {
         let openPath = currentItem?.path
         items = new
         livePairs = LivePairs.compute(items: new)
+        scopeCounts = Self.computeScopeCounts(items: new, livePairs: livePairs)
         rebuildVisible()
         timeline = TimelineIndex.compute(items: visibleItems)
         let visiblePaths = Set(visibleItems.map(\.path))
@@ -134,9 +149,28 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Per-scope library counts — one pass over all items, ignoring
+    /// `dateRange` (these are library totals, not "currently visible" counts)
+    /// but still respecting `hiddenVideoPaths` (paired motion files never
+    /// count toward any scope).
+    private static func computeScopeCounts(items: [MediaItem], livePairs: LivePairs) -> [LibraryScope: Int] {
+        let candidates = items.filter { !livePairs.hiddenVideoPaths.contains($0.path) }
+        var counts: [LibraryScope: Int] = [:]
+        for scope in LibraryScope.allCases {
+            counts[scope] = candidates.reduce(0) { $0 + (scope.matches($1, livePairs: livePairs) ? 1 : 0) }
+        }
+        return counts
+    }
+
     private func rebuildVisible() {
+        guard !(scope == .hidden && !hiddenUnlocked) else {
+            visibleItems = []
+            return
+        }
         let unhidden = items.filter { !livePairs.hiddenVideoPaths.contains($0.path) }
-        visibleItems = filter == .all ? unhidden : unhidden.filter { filter.matches($0) }
+        visibleItems = unhidden
+            .filter { scope.matches($0, livePairs: livePairs) }
+            .filter { dateRange.matches($0) }
     }
 
     func openViewer(_ item: MediaItem) {
@@ -221,6 +255,31 @@ final class LibraryViewModel: ObservableObject {
                 self.refreshItems(fresh)
                 self.clearSelection()
                 if !outcome.failures.isEmpty { self.trashFailures = outcome.failures }
+            }
+        }
+    }
+
+    /// Hide/unhide the given items. Expands live pairs so a still and its
+    /// paired motion file move together (mirrors `confirmTrash`'s shape),
+    /// so `.videos` can never leak a hidden-item's motion file.
+    func setHidden(_ items: [MediaItem], hidden: Bool) {
+        guard !items.isEmpty else { return }
+        var paths: [String] = []
+        for item in items {
+            paths.append(item.path)
+            if let motion = livePairs.videoPath(forImagePath: item.path) {
+                paths.append(motion)
+            }
+        }
+        let service = self.service
+        Task.detached {
+            let index = service.mediaIndex
+            try? index.setHidden(paths: paths, hidden: hidden)
+            let fresh = (try? service.items()) ?? []
+            await MainActor.run {
+                self.refreshEpoch += 1
+                self.refreshItems(fresh)
+                self.clearSelection()
             }
         }
     }
