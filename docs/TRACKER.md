@@ -10,8 +10,8 @@ States: ☐ queued · 🔨 in progress · ✅ shipped (merged to main) · 🧪 b
 | 3 | Grid densities (micro/medium/large) | ✅ | wave2 §3 | |
 | 4 | Timeline scrubber rail | ✅ | wave2 §4 | Grok-style right edge |
 | 5 | Hover-scrub video previews | ✅ | wave2 §5 | |
-| 6 | Left sidebar (sections + date range) | 🔨 | sidebar-hidden spec | includes Screenshots/Selfies detection |
-| 7 | Hidden (Photos-style, auth-gated) | 🔨 | sidebar-hidden spec | LocalAuthentication (Touch ID / password) to open Hidden |
+| 6 | Left sidebar (sections + date range) | 🧪 | sidebar-hidden spec | includes Screenshots/Selfies detection |
+| 7 | Hidden (Photos-style, auth-gated) | 🧪 | sidebar-hidden spec | LocalAuthentication (Touch ID / password) to open Hidden |
 | 8 | Device browser (phone thumbnails, NEW vs imported) | ☐ | — | folds in per-item import selection (#9) |
 | 9 | Import selection | ☐ | — | subset of #8 |
 | 10 | Live poster-frame picker | ☐ | — | first file-writing feature; own safety design |
