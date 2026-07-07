@@ -8,6 +8,7 @@ struct ThumbCell: View {
     // cell's stored properties to decide whether to re-render, and `vm` is a
     // reference that never "changes" — rings/badges would go stale otherwise.
     let isSelected: Bool
+    let showsCheckmark: Bool   // tick only in multi-selection; a lone ring is enough
     let isLive: Bool
     @State private var image: NSImage?
 
@@ -56,7 +57,7 @@ struct ThumbCell: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if isSelected {
+            if showsCheckmark {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.white, Color.accentColor)
                     .padding(3)
@@ -155,6 +156,8 @@ struct MicroGridView: View {
                     ForEach(vm.visibleItems, id: \.path) { item in
                         ThumbCell(item: item, vm: vm,
                                   isSelected: vm.selectedPaths.contains(item.path),
+                                  showsCheckmark: vm.selectedPaths.count > 1
+                                      && vm.selectedPaths.contains(item.path),
                                   isLive: vm.isLive(item))
                     }
                 }
