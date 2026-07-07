@@ -94,6 +94,12 @@ struct ThumbCell: View {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
             }
             Divider()
+            if vm.scope == .hidden {
+                Button("Unhide") { vm.setHidden(hideTargets(), hidden: false) }
+            } else {
+                Button(hideTitle) { vm.setHidden(hideTargets(), hidden: true) }
+            }
+            Divider()
             Button(trashTitle, role: .destructive) {
                 if !vm.selectedPaths.contains(item.path) {
                     vm.select(item, commandKey: false, shiftKey: false)
@@ -111,6 +117,21 @@ struct ThumbCell: View {
     private var trashTitle: String {
         let n = vm.selectedPaths.contains(item.path) ? max(vm.selectedPaths.count, 1) : 1
         return n > 1 ? "Move \(n) Items to Trash" : "Move to Trash"
+    }
+
+    private var hideTitle: String {
+        let n = vm.selectedPaths.contains(item.path) ? max(vm.selectedPaths.count, 1) : 1
+        return n > 1 ? "Hide \(n) Items" : "Hide"
+    }
+
+    /// Right-click outside the current selection re-selects just the clicked
+    /// item first (mirrors the trash context-menu action above).
+    private func hideTargets() -> [MediaItem] {
+        if !vm.selectedPaths.contains(item.path) {
+            vm.select(item, commandKey: false, shiftKey: false)
+        }
+        let targets = vm.visibleItems.filter { vm.selectedPaths.contains($0.path) }
+        return targets.isEmpty ? [item] : targets
     }
 }
 
@@ -158,7 +179,24 @@ struct MicroGridView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if vm.visibleItems.isEmpty {
+        if vm.scope == .hidden && !vm.hiddenUnlocked {
+            VStack(spacing: 12) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.secondary)
+                Text("Hidden items are locked")
+                    .foregroundStyle(.secondary)
+                Button("Authenticate") {
+                    Task {
+                        if await HiddenGate.authenticate() {
+                            vm.hiddenUnlocked = true
+                            vm.scope = .hidden
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if vm.visibleItems.isEmpty {
             VStack(spacing: 12) {
                 if vm.isIndexing && vm.items.isEmpty {
                     ProgressView()
@@ -232,6 +270,12 @@ private struct GridKeyCatcher: NSViewRepresentable {
                     }
                     if chars == "-" {
                         self.vm.stepDensity(-1); return nil
+                    }
+                    if chars.lowercased() == "h" {
+                        let targets = self.vm.visibleItems.filter { self.vm.selectedPaths.contains($0.path) }
+                        guard !targets.isEmpty else { return event }
+                        self.vm.setHidden(targets, hidden: self.vm.scope != .hidden)
+                        return nil
                     }
                 }
                 switch event.keyCode {

@@ -4,11 +4,11 @@ import PhlookCore
 /// Left source-list: Library / Kinds / Hidden scopes with per-scope counts,
 /// plus a From–To date-range control at the bottom.
 ///
-/// Note (Task 4 scope): selecting Hidden while locked simply sets
-/// `vm.scope = .hidden` for now — `rebuildVisible()` already renders an empty
-/// grid in that state (see `LibraryViewModel.rebuildVisible`). Task 5 adds the
-/// LocalAuthentication gate that intercepts this selection and the lock
-/// placeholder UI; this task only wires the icon/count display.
+/// Selecting the Hidden row while locked does NOT switch scope directly —
+/// it triggers `HiddenGate.authenticate()` and only flips `vm.scope = .hidden`
+/// on success (setting `hiddenUnlocked` first so `scope`'s didSet doesn't see
+/// a locked `.hidden` and immediately relock/empty it). On failure the
+/// selection reverts to whatever scope was showing.
 struct SidebarView: View {
     @ObservedObject var vm: LibraryViewModel
 
@@ -17,7 +17,24 @@ struct SidebarView: View {
             get: { vm.scope },
             set: { newValue in
                 guard let newValue else { return }
-                vm.scope = newValue
+                guard newValue == .hidden else {
+                    vm.scope = newValue
+                    return
+                }
+                guard !vm.hiddenUnlocked else {
+                    vm.scope = .hidden
+                    return
+                }
+                Task {
+                    if await HiddenGate.authenticate() {
+                        vm.hiddenUnlocked = true
+                        vm.scope = .hidden
+                    }
+                    // Failure: leave `vm.scope` untouched (List's selection
+                    // binding already got a "set" call, but since we never
+                    // wrote a new value into `vm.scope`, the next body
+                    // re-render reasserts the old tag via `get`).
+                }
             }
         )
     }
