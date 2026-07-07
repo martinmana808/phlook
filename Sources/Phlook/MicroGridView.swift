@@ -12,6 +12,7 @@ struct ThumbCell: View {
     let isLive: Bool
     let side: CGFloat
     @State private var image: NSImage?
+    @ObservedObject private var hover = HoverPreviewCoordinator.shared
 
     var body: some View {
         ZStack {
@@ -19,6 +20,9 @@ struct ThumbCell: View {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
                 Rectangle().fill(.quaternary)
+            }
+            if hover.activePath == item.path, let player = hover.player {
+                HoverPreviewPlayer(player: player)
             }
         }
         .frame(width: side, height: side)
@@ -65,7 +69,16 @@ struct ThumbCell: View {
             }
         }
         .contentShape(Rectangle())
-        .gesture(TapGesture(count: 2).onEnded { vm.openViewer(item) })
+        .onHover { inside in
+            guard item.fileType == "video", !isLive,
+                  let d = item.duration, d > 0 else { return }
+            if inside { hover.hoverBegan(path: item.path) }
+            else { hover.hoverEnded(path: item.path) }
+        }
+        .gesture(TapGesture(count: 2).onEnded {
+            HoverPreviewCoordinator.shared.stop()
+            vm.openViewer(item)
+        })
         .simultaneousGesture(TapGesture(count: 1).onEnded {
             let flags = NSEvent.modifierFlags
             vm.select(item, commandKey: flags.contains(.command), shiftKey: flags.contains(.shift))
