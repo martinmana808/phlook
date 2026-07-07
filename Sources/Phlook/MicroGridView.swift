@@ -17,7 +17,7 @@ struct ThumbCell: View {
         .frame(width: 80, height: 80)
         .clipped()
         .overlay(alignment: .bottomTrailing) {
-            if item.fileType == "video",
+            if item.fileType == "video", !vm.isLive(item),
                let text = DurationFormatter.string(seconds: item.duration) {
                 Text(text)
                     .font(.caption2.monospacedDigit())
@@ -28,7 +28,7 @@ struct ThumbCell: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if item.fileType == "video" {
+            if item.fileType == "video", !vm.isLive(item) {
                 Image(systemName: "play.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(.white)
@@ -36,8 +36,33 @@ struct ThumbCell: View {
                     .padding(4)
             }
         }
+        .overlay(alignment: .topLeading) {
+            if vm.isLive(item) {
+                Image(systemName: "livephoto")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .shadow(radius: 1)
+                    .padding(4)
+            }
+        }
+        .overlay {
+            if vm.selectedPaths.contains(item.path) {
+                Rectangle().strokeBorder(Color.accentColor, lineWidth: 3)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if vm.selectedPaths.contains(item.path) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.white, Color.accentColor)
+                    .padding(3)
+            }
+        }
         .contentShape(Rectangle())
         .gesture(TapGesture(count: 2).onEnded { vm.openViewer(item) })
+        .simultaneousGesture(TapGesture(count: 1).onEnded {
+            let flags = NSEvent.modifierFlags
+            vm.select(item, commandKey: flags.contains(.command), shiftKey: flags.contains(.shift))
+        })
         .contextMenu {
             Button("Open") { vm.openViewer(item) }
             Button("View Details") { vm.detailsItem = item }
@@ -45,8 +70,21 @@ struct ThumbCell: View {
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
             }
+            Divider()
+            Button(trashTitle, role: .destructive) {
+                if !vm.selectedPaths.contains(item.path) {
+                    vm.select(item, commandKey: false, shiftKey: false)
+                }
+                let targets = vm.visibleItems.filter { vm.selectedPaths.contains($0.path) }
+                vm.requestTrash(targets.isEmpty ? [item] : targets)
+            }
         }
         .task { image = await vm.thumbnail(for: item) }
+    }
+
+    private var trashTitle: String {
+        let n = vm.selectedPaths.contains(item.path) ? max(vm.selectedPaths.count, 1) : 1
+        return n > 1 ? "Move \(n) Items to Trash" : "Move to Trash"
     }
 }
 
@@ -60,6 +98,7 @@ struct MicroGridView: View {
             filterBar
             content
         }
+        .background(GridKeyCatcher(vm: vm))
         // Subtle "updating" chip while a background re-scan runs over already-shown items.
         .overlay(alignment: .bottomTrailing) {
             if vm.isIndexing && !vm.items.isEmpty {
@@ -115,5 +154,46 @@ struct MicroGridView: View {
                 .padding(2)
             }
         }
+    }
+}
+
+/// Grid-scoped key handling: ⌘A select-all, Esc clear, Delete → trash selection.
+/// Local NSEvent monitor active only while the viewer is closed.
+private struct GridKeyCatcher: NSViewRepresentable {
+    let vm: LibraryViewModel
+
+    func makeNSView(context: Context) -> NSView { KeyView(vm: vm) }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    @MainActor
+    final class KeyView: NSView {
+        let vm: LibraryViewModel
+        private var monitor: Any?
+
+        init(vm: LibraryViewModel) {
+            self.vm = vm
+            super.init(frame: .zero)
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.vm.viewerIndex == nil else { return event }
+                if event.modifierFlags.contains(.command),
+                   event.charactersIgnoringModifiers?.lowercased() == "a" {
+                    self.vm.selectAllVisible(); return nil
+                }
+                switch event.keyCode {
+                case 53:          // Esc
+                    guard !self.vm.selectedPaths.isEmpty else { return event }
+                    self.vm.clearSelection(); return nil
+                case 51, 117:     // Delete / Forward-delete
+                    let targets = self.vm.visibleItems.filter { self.vm.selectedPaths.contains($0.path) }
+                    guard !targets.isEmpty else { return event }
+                    self.vm.requestTrash(targets); return nil
+                default:
+                    return event
+                }
+            }
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }

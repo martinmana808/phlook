@@ -5,6 +5,9 @@ public final class IndexingService {
     private let index: MediaIndex
     public let thumbnails: ThumbnailCache
 
+    /// The backing index, for read/delete operations owned by the UI layer.
+    public var mediaIndex: MediaIndex { index }
+
     public init(root: URL) {
         self.root = root
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

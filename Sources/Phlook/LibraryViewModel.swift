@@ -32,6 +32,11 @@ final class LibraryViewModel: ObservableObject {
             rebuildVisible()
         }
     }
+    @Published private(set) var livePairs: LivePairs = .empty
+    @Published var selectedPaths: Set<String> = []
+    @Published var pendingTrash: [MediaItem]?     // confirmation dialog payload
+    @Published var trashFailures: [String]?       // post-delete failure alert
+    private var selectionAnchorPath: String?
     let service: IndexingService
 
     init() {
@@ -74,14 +79,17 @@ final class LibraryViewModel: ObservableObject {
     private func refreshItems(_ new: [MediaItem]) {
         let openPath = currentItem?.path
         items = new
+        livePairs = LivePairs.compute(items: new)
         rebuildVisible()
+        selectedPaths = selectedPaths.filter { p in visibleItems.contains { $0.path == p } }
         if let openPath {
             viewerIndex = ViewerMath.resolveIndex(path: openPath, in: visibleItems)
         }
     }
 
     private func rebuildVisible() {
-        visibleItems = filter == .all ? items : items.filter { filter.matches($0) }
+        let unhidden = items.filter { !livePairs.hiddenVideoPaths.contains($0.path) }
+        visibleItems = filter == .all ? unhidden : unhidden.filter { filter.matches($0) }
     }
 
     func openViewer(_ item: MediaItem) {
@@ -101,5 +109,59 @@ final class LibraryViewModel: ObservableObject {
     func thumbnail(for item: MediaItem) async -> NSImage? {
         guard let url = await service.thumbnails.thumbnailURL(for: item, size: 160) else { return nil }
         return NSImage(contentsOf: url)
+    }
+
+    func isLive(_ item: MediaItem) -> Bool {
+        item.fileType == "image" && livePairs.videoPath(forImagePath: item.path) != nil
+    }
+
+    func select(_ item: MediaItem, commandKey: Bool, shiftKey: Bool) {
+        if shiftKey, let anchor = selectionAnchorPath,
+           let a = visibleItems.firstIndex(where: { $0.path == anchor }),
+           let b = visibleItems.firstIndex(where: { $0.path == item.path }) {
+            let range = min(a, b)...max(a, b)
+            selectedPaths.formUnion(visibleItems[range].map(\.path))
+        } else if commandKey {
+            if selectedPaths.contains(item.path) { selectedPaths.remove(item.path) }
+            else { selectedPaths.insert(item.path) }
+            selectionAnchorPath = item.path
+        } else {
+            selectedPaths = [item.path]
+            selectionAnchorPath = item.path
+        }
+    }
+
+    func selectAllVisible() { selectedPaths = Set(visibleItems.map(\.path)) }
+    func clearSelection() { selectedPaths = []; selectionAnchorPath = nil }
+
+    /// Right-click delete: if the clicked item isn't in the selection, the
+    /// selection becomes just that item (Photos behavior) before confirming.
+    func requestTrash(_ items: [MediaItem]) {
+        guard !items.isEmpty else { return }
+        pendingTrash = items
+    }
+
+    func confirmTrash() {
+        guard let targets = pendingTrash else { return }
+        pendingTrash = nil
+        // Expand live pairs: trashing the still takes the motion file with it.
+        var paths: [String] = []
+        for item in targets {
+            paths.append(item.path)
+            if let motion = livePairs.videoPath(forImagePath: item.path) {
+                paths.append(motion)
+            }
+        }
+        let service = self.service
+        Task.detached {
+            let index = service.mediaIndex
+            let outcome = LibraryTrasher.trash(paths: paths, index: index)
+            let fresh = (try? service.items()) ?? []
+            await MainActor.run {
+                self.refreshItems(fresh)
+                self.clearSelection()
+                if !outcome.failures.isEmpty { self.trashFailures = outcome.failures }
+            }
+        }
     }
 }

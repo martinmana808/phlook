@@ -34,6 +34,24 @@ struct ContentView: View {
         )) {
             ImportResultSheet(state: importer.state) { importer.dismissResult() }
         }
+        .confirmationDialog(
+            "Move \(vm.pendingTrash?.count ?? 0) item(s) to Trash?",
+            isPresented: Binding(get: { vm.pendingTrash != nil },
+                                 set: { if !$0 { vm.pendingTrash = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Move to Trash", role: .destructive) { vm.confirmTrash() }
+            Button("Cancel", role: .cancel) { vm.pendingTrash = nil }
+        } message: {
+            Text("You can restore them from the Trash.")
+        }
+        .alert("Some items could not be moved to Trash",
+               isPresented: Binding(get: { vm.trashFailures != nil },
+                                    set: { if !$0 { vm.trashFailures = nil } })) {
+            Button("OK") { vm.trashFailures = nil }
+        } message: {
+            Text((vm.trashFailures ?? []).joined(separator: "\n"))
+        }
         .onAppear {
             importer.onLibraryChanged = { vm.load() }
             vm.load()
