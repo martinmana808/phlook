@@ -1,64 +1,88 @@
 import SwiftUI
 import PhlookCore
 
-/// Right-edge scrubber: one tick per month (longer at year starts). Hover
-/// shows the month; click/drag jumps the grid. Fades when idle.
+/// Right-edge scrubber: spans oldest → newest media, time-linearly, with bar
+/// width encoding density (volume of media at that point in time). Hover
+/// shows the month under the cursor; the grid only jumps once, on release,
+/// so dragging never fights the scroll view.
 struct TimelineRail: View {
     let buckets: [TimelineBucket]
     let onJump: (String) -> Void
     @State private var hovering = false
     @State private var hoverLabel: String?
-    @State private var lastJumpedPath: String?
+    @State private var currentY: CGFloat?
+
+    private var datedBuckets: [TimelineBucket] {
+        buckets.filter { $0.monthStart != nil }
+    }
 
     var body: some View {
         GeometryReader { geo in
             let height = geo.size.height
             ZStack(alignment: .trailing) {
-                // Ticks, evenly distributed over the rail height.
-                ForEach(Array(buckets.enumerated()), id: \.offset) { index, bucket in
+                ForEach(Array(datedBuckets.enumerated()), id: \.offset) { _, bucket in
+                    let minWidth: Double = bucket.isYearStart ? 10 : 6
+                    let width = minWidth + 22 * bucket.densityFraction
                     Rectangle()
-                        .fill(.secondary.opacity(hovering ? 0.9 : 0.4))
-                        .frame(width: bucket.isYearStart ? 16 : 8, height: 1.5)
-                        .position(x: geo.size.width - (bucket.isYearStart ? 10 : 6),
-                                  y: yFor(index: index, height: height))
+                        .fill(.secondary.opacity(bucket.isYearStart ? 0.85 : (hovering ? 0.85 : 0.35)))
+                        .frame(width: width, height: 2)
+                        .position(x: geo.size.width - width / 2,
+                                  y: yFor(bucket: bucket, height: height))
+                }
+                if hovering, let y = currentY {
+                    Rectangle()
+                        .fill(.primary.opacity(0.6))
+                        .frame(width: 44, height: 1)
+                        .position(x: geo.size.width - 22, y: y)
                 }
                 if hovering, let label = hoverLabel {
                     Text(label)
                         .font(.caption).monospacedDigit()
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(.regularMaterial, in: Capsule())
-                        .offset(x: -28)
+                        .offset(x: -40)
+                        .position(x: geo.size.width, y: currentY ?? height / 2)
                 }
             }
             .contentShape(Rectangle().inset(by: -8))
-            .onHover { hovering = $0; if !$0 { hoverLabel = nil } }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    hovering = true
+                    currentY = location.y
+                    hoverLabel = nearestBucket(toY: location.y, height: height)?.label
+                case .ended:
+                    hovering = false
+                    hoverLabel = nil
+                    currentY = nil
+                }
+            }
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        guard let (bucket, _) = bucket(atY: value.location.y, height: height) else { return }
+                        guard let bucket = nearestBucket(toY: value.location.y, height: height) else { return }
+                        currentY = value.location.y
                         hoverLabel = bucket.label
-                        if bucket.firstItemPath != lastJumpedPath {
-                            lastJumpedPath = bucket.firstItemPath
-                            onJump(bucket.firstItemPath)
-                        }
                     }
-                    .onEnded { _ in lastJumpedPath = nil }
+                    .onEnded { value in
+                        guard let bucket = nearestBucket(toY: value.location.y, height: height) else { return }
+                        onJump(bucket.firstItemPath)
+                    }
             )
         }
-        .frame(width: 36)
+        .frame(width: 44)
     }
 
-    private func yFor(index: Int, height: CGFloat) -> CGFloat {
-        guard buckets.count > 1 else { return height / 2 }
+    private func yFor(bucket: TimelineBucket, height: CGFloat) -> CGFloat {
+        let topInset: CGFloat = 12
         let usable = height - 24
-        return 12 + usable * CGFloat(index) / CGFloat(buckets.count - 1)
+        return topInset + usable * CGFloat(bucket.yFraction)
     }
 
-    private func bucket(atY y: CGFloat, height: CGFloat) -> (TimelineBucket, Int)? {
-        guard !buckets.isEmpty else { return nil }
-        let usable = max(height - 24, 1)
-        let fraction = min(max((y - 12) / usable, 0), 1)
-        let index = min(Int(round(fraction * CGFloat(buckets.count - 1))), buckets.count - 1)
-        return (buckets[index], index)
+    /// Nearest bucket by |y - bucketY|, not index math — bars aren't evenly spaced in time.
+    private func nearestBucket(toY y: CGFloat, height: CGFloat) -> TimelineBucket? {
+        let dated = datedBuckets
+        guard !dated.isEmpty else { return nil }
+        return dated.min(by: { abs(yFor(bucket: $0, height: height) - y) < abs(yFor(bucket: $1, height: height) - y) })
     }
 }

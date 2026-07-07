@@ -198,7 +198,7 @@ struct MicroGridView: View {
                     .padding(2)
                 }
                 .overlay(alignment: .trailing) {
-                    if vm.timeline.count >= 2 {
+                    if vm.timeline.filter({ $0.monthStart != nil }).count >= 2 {
                         TimelineRail(buckets: vm.timeline) { path in
                             proxy.scrollTo(path, anchor: .top)
                         }

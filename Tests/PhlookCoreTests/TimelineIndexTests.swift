@@ -49,4 +49,24 @@ struct TimelineIndexTests {
     @Test func emptyInputYieldsNoBuckets() {
         #expect(TimelineIndex.compute(items: []).isEmpty)
     }
+
+    @Test func yFractionIsTimeLinearWithGaps() {
+        // Jan 2026 (newest), Dec 2025, Jan 2025 (oldest): Dec sits ~1/12 down, not 1/2.
+        let buckets = TimelineIndex.compute(items: [
+            item("/a", "2026-01-15T10:00:00Z"),
+            item("/b", "2025-12-15T10:00:00Z"),
+            item("/c", "2025-01-15T10:00:00Z"),
+        ])
+        #expect(buckets[0].yFraction == 0.0)
+        #expect(buckets[2].yFraction == 1.0)
+        #expect(buckets[1].yFraction > 0.05 && buckets[1].yFraction < 0.15)   // ~1 month of 12
+    }
+
+    @Test func densityFractionScalesToBusiestMonth() {
+        let items = [item("/a", "2026-03-01T10:00:00Z"), item("/b", "2026-03-02T10:00:00Z"),
+                     item("/c", "2026-03-03T10:00:00Z"), item("/d", "2026-01-05T10:00:00Z")]
+        let buckets = TimelineIndex.compute(items: items)
+        #expect(buckets[0].densityFraction == 1.0)     // 3 of max 3
+        #expect(abs(buckets[1].densityFraction - 1.0/3.0) < 0.001)
+    }
 }
