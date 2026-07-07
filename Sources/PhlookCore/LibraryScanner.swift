@@ -19,16 +19,13 @@ public struct LibraryScanner {
         var allPaths: Set<String> = []
         let keys: [URLResourceKey] = [.isRegularFileKey, .creationDateKey,
                                       .fileSizeKey, .contentModificationDateKey]
+        let canonicalRoot = root.resolvingSymlinksInPath()
         guard let e = FileManager.default.enumerator(
-            at: root, includingPropertiesForKeys: keys,
+            at: canonicalRoot, includingPropertiesForKeys: keys,
             options: [.skipsHiddenFiles]) else { return ([], []) }
         for case let rawURL as URL in e {
-            // NSDirectoryEnumerator returns entries via the resolved-device
-            // path (e.g. "/private/var/..."), while callers construct paths
-            // from the nominal URL (e.g. "/var/..."). resolvingSymlinksInPath()
-            // is documented to translate /private/{tmp,var,etc} back to the
-            // canonical short form, keeping path strings consistent with
-            // what callers (and this scanner's own `known` stamp keys) expect.
+            // Enumerated URLs under a canonical root are consistent; resolve once
+            // to normalize /private/{tmp,var} → /var forms for caller compatibility.
             let url = rawURL.resolvingSymlinksInPath()
             let ext = url.pathExtension.lowercased()
             let isImage = Self.imageExts.contains(ext)
