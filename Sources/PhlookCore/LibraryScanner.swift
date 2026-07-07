@@ -9,29 +9,49 @@ public struct LibraryScanner {
     static let imageExts: Set<String> = ["jpg","jpeg","heic","heif","png","tiff","gif","webp","dng"]
     static let videoExts: Set<String> = ["mov","mp4","m4v","avi"]
 
+    /// Compatibility wrapper: always full-rescan (no known stamps).
     public func scan() throws -> [MediaItem] {
-        var results: [MediaItem] = []
-        let keys: [URLResourceKey] = [.isRegularFileKey, .creationDateKey]
+        try scan(known: [:]).changed
+    }
+
+    public func scan(known: [String: FileStamp] = [:]) throws -> (changed: [MediaItem], allPaths: Set<String>) {
+        var changed: [MediaItem] = []
+        var allPaths: Set<String> = []
+        let keys: [URLResourceKey] = [.isRegularFileKey, .creationDateKey,
+                                      .fileSizeKey, .contentModificationDateKey]
         guard let e = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles]) else { return [] }
-        for case let url as URL in e {
+            at: root, includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles]) else { return ([], []) }
+        for case let rawURL as URL in e {
+            // NSDirectoryEnumerator returns entries via the resolved-device
+            // path (e.g. "/private/var/..."), while callers construct paths
+            // from the nominal URL (e.g. "/var/..."). resolvingSymlinksInPath()
+            // is documented to translate /private/{tmp,var,etc} back to the
+            // canonical short form, keeping path strings consistent with
+            // what callers (and this scanner's own `known` stamp keys) expect.
+            let url = rawURL.resolvingSymlinksInPath()
             let ext = url.pathExtension.lowercased()
             let isImage = Self.imageExts.contains(ext)
             let isVideo = Self.videoExts.contains(ext)
             guard isImage || isVideo else { continue }
             if url.lastPathComponent.hasPrefix("._") { continue }
-            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
-            let (w, h, taken): (Int?, Int?, Date?) = isImage ? Self.imageMeta(url) : (nil, nil, nil)
-            let fileDate = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate
-            results.append(MediaItem(
-                path: url.path, hash: Self.quickHash(url),
-                dateTaken: isImage ? (taken ?? fileDate) : nil,
+            guard let values = try? rawURL.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true else { continue }
+            allPaths.insert(url.path)
+            let size = values.fileSize ?? 0
+            let mtime = values.contentModificationDate ?? Date.distantPast
+            if let stamp = known[url.path], stamp.matches(size: size, modifiedAt: mtime) {
+                continue   // unchanged: row stays untouched
+            }
+            let (w, h, taken): (Int?, Int?, Date?) = isImage ? Self.imageMeta(rawURL) : (nil, nil, nil)
+            changed.append(MediaItem(
+                path: url.path, hash: Self.quickHash(rawURL),
+                dateTaken: isImage ? (taken ?? values.creationDate) : nil,
                 fileType: isImage ? "image" : "video",
-                width: w, height: h, lastScanned: Date()))
+                width: w, height: h, lastScanned: Date(),
+                duration: nil, fileSize: size, modifiedAt: mtime))
         }
-        return results
+        return (changed, allPaths)
     }
 
     private static let exifDateFormatter: DateFormatter = {

@@ -1,6 +1,16 @@
 import Foundation
 import GRDB
 
+public struct FileStamp: Equatable {
+    public let size: Int
+    public let modifiedAt: Date
+    public init(size: Int, modifiedAt: Date) { self.size = size; self.modifiedAt = modifiedAt }
+
+    public func matches(size: Int, modifiedAt: Date) -> Bool {
+        self.size == size && abs(self.modifiedAt.timeIntervalSince(modifiedAt)) < 1.0
+    }
+}
+
 public final class MediaIndex {
     private static let importTimestampFormatter = ISO8601DateFormatter()
 
@@ -23,7 +33,9 @@ public final class MediaIndex {
                     width INTEGER,
                     height INTEGER,
                     last_scanned TEXT,
-                    duration REAL
+                    duration REAL,
+                    file_size INTEGER,
+                    modified_at TEXT
                 );
             """)
             // Databases created before the duration column existed:
@@ -51,6 +63,16 @@ public final class MediaIndex {
                 """)
                 try db.execute(sql: "PRAGMA user_version = 3")
             }
+            if version < 4 {
+                let cols = try db.columns(in: "files").map(\.name)
+                if !cols.contains("file_size") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN file_size INTEGER")
+                }
+                if !cols.contains("modified_at") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN modified_at TEXT")
+                }
+                try db.execute(sql: "PRAGMA user_version = 4")
+            }
         }
     }
 
@@ -71,6 +93,11 @@ public final class MediaIndex {
                     existing.height = item.height ?? existing.height
                     existing.duration = item.duration ?? existing.duration
                 }
+                // Scan-authoritative in both branches: nil-coalescing is safe
+                // because scan items always carry stamps, and enrichment
+                // write-backs carry the row's own non-nil values.
+                existing.fileSize = item.fileSize ?? existing.fileSize
+                existing.modifiedAt = item.modifiedAt ?? existing.modifiedAt
                 existing.hash = item.hash
                 existing.fileType = item.fileType
                 existing.lastScanned = item.lastScanned
@@ -78,6 +105,32 @@ public final class MediaIndex {
             } else {
                 try item.insert(db)
             }
+        }
+    }
+
+    /// path → stamp for rows that have both fields (pre-v4 rows are omitted
+    /// so they take the full-extract path once, which backfills them).
+    public func allStamps() throws -> [String: FileStamp] {
+        try dbQueue.read { db in
+            var result: [String: FileStamp] = [:]
+            let rows = try Row.fetchAll(db, sql:
+                "SELECT path, file_size, modified_at FROM files WHERE file_size IS NOT NULL AND modified_at IS NOT NULL")
+            for row in rows {
+                let path: String = row["path"]
+                let size: Int = row["file_size"]
+                if let date = row["modified_at"] as Date? {
+                    result[path] = FileStamp(size: size, modifiedAt: date)
+                }
+            }
+            return result
+        }
+    }
+
+    /// Test support: simulate a pre-v4 row.
+    func nullStampsForTesting(path: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE files SET file_size = NULL, modified_at = NULL WHERE path = ?",
+                           arguments: [path])
         }
     }
 

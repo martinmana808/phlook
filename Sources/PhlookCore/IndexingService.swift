@@ -17,11 +17,12 @@ public final class IndexingService {
 
     @discardableResult
     public func reindex() throws -> Int {
-        let scanned = try LibraryScanner(root: root).scan()
-        for item in scanned where FileManager.default.fileExists(atPath: item.path) {
+        let known = (try? index.allStamps()) ?? [:]
+        let (changed, allPaths) = try LibraryScanner(root: root).scan(known: known)
+        for item in changed where FileManager.default.fileExists(atPath: item.path) {
             try index.upsert(item)
         }
-        try index.deleteMissing(keepingPaths: Set(scanned.map { $0.path }))
+        try index.deleteMissing(keepingPaths: allPaths)
         return try index.count()
     }
 
