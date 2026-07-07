@@ -25,8 +25,8 @@ Build order (user-approved 2026-07-07): **#1–5 → #6+7 → rest later.**
 | 15 | Viewer zoom animation (grid↔full-screen, Photos-style) | ☐ | — | |
 | 16 | Viewer zoom slider | ☐ | — | |
 | 17 | Years / Months / All Photos views | ☐ | — | Photos-parity grouping; may supersede rail |
-| 18 | Rail v3 (full-height track, year labels, better density scaling) | 🔨 | — | user dislikes v2 |
-| 19 | Date-range result count | 🔨 | — | |
+| 18 | Rail v3 (full-height track, year labels, better density scaling) | 🧪 | — | user dislikes v2 |
+| 19 | Date-range result count | 🧪 | — | |
 
 ## Shipped so far (context)
 
