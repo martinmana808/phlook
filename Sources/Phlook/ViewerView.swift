@@ -7,6 +7,7 @@ struct ViewerView: View {
     @State private var monitor = ViewerInputMonitor()
     @State private var player: AVPlayer?
     @State private var livePlayer: AVPlayer?
+    @State private var liveEndObserver: NSObjectProtocol?
     @State private var image: NSImage?
     @State private var missing = false
 
@@ -46,6 +47,7 @@ struct ViewerView: View {
         .onDisappear {
             monitor.stop()
             player?.pause()
+            stopLivePlayback()
         }
         .task(id: vm.currentItem?.path) { await loadCurrent() }
     }
@@ -125,6 +127,7 @@ struct ViewerView: View {
                         Label("LIVE", systemImage: "livephoto")
                             .foregroundStyle(.white)
                     }
+                    .disabled(livePlayer != nil)
                 }
                 Button { vm.sidebarOpen.toggle() } label: {
                     Image(systemName: "info.circle").foregroundStyle(.white)
@@ -138,26 +141,33 @@ struct ViewerView: View {
     }
 
     private func playLive(for item: MediaItem) {
+        stopLivePlayback()
         guard let motion = vm.livePairs.videoPath(forImagePath: item.path) else { return }
         let player = AVPlayer(url: URL(fileURLWithPath: motion))
         livePlayer = player
-        var token: NSObjectProtocol?
-        token = NotificationCenter.default.addObserver(
+        liveEndObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem, queue: .main) { _ in
             Task { @MainActor in
-                self.livePlayer = nil
-                if let token { NotificationCenter.default.removeObserver(token) }
+                self.stopLivePlayback()
             }
         }
         player.play()
     }
 
-    private func loadCurrent() async {
-        player?.pause()
-        player = nil
+    private func stopLivePlayback() {
         livePlayer?.pause()
         livePlayer = nil
+        if let token = liveEndObserver {
+            NotificationCenter.default.removeObserver(token)
+            liveEndObserver = nil
+        }
+    }
+
+    private func loadCurrent() async {
+        stopLivePlayback()
+        player?.pause()
+        player = nil
         image = nil
         missing = false
         guard let item = vm.currentItem else { return }
