@@ -28,4 +28,18 @@ struct IngestReportSummaryTests {
         #expect(text.contains("a.jpg")) // fallback-dated listing
         #expect(text.contains("NOT CLEAN"))
     }
+
+    @Test func downloadFailuresWithholdTheGreenLight() {
+        var r = IngestReport()
+        r.moved = ["a.jpg"]
+        let text = r.summaryText(downloadFailures: 2)
+        #expect(!text.contains("safe to delete"))
+        #expect(text.contains("NOT CLEAN — 2 download(s) failed"))
+    }
+
+    @Test func zeroDownloadFailuresLeaveSummaryUntouched() {
+        var r = IngestReport()
+        r.moved = ["a.jpg"]
+        #expect(r.summaryText(downloadFailures: 0) == r.summaryText)
+    }
 }

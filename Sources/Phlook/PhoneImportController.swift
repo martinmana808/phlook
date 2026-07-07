@@ -106,6 +106,7 @@ final class PhoneImportController: NSObject, ObservableObject {
     private func downloadNext() {
         guard case .importing(let device, _, let total) = state else { return }
         guard let file = downloadQueue.first else {
+            inFlightFile = nil
             finishImport()
             return
         }
@@ -126,6 +127,7 @@ final class PhoneImportController: NSObject, ObservableObject {
                       case .importing = self.state else { return }
                 if Date().timeIntervalSince(self.lastActivity) > 180 {
                     self.runGeneration += 1   // invalidate any in-flight callback for this file
+                    self.inFlightFile = nil
                     self.state = .error(message: "Download stalled on '\(stalledName)'. Reconnect the iPhone and try again — already-imported items will be skipped.")
                     return
                 }
@@ -141,10 +143,20 @@ final class PhoneImportController: NSObject, ObservableObject {
     @objc nonisolated func didDownloadFile(_ file: ICCameraFile, error: Error?,
                                        options: [String: Any], contextInfo: UnsafeMutableRawPointer?) {
         Task { @MainActor in
+            guard file === self.inFlightFile else {
+                // Straggler from an abandoned request: the download itself is
+                // real, so remember it — but never touch the live run's state.
+                if error == nil {
+                    let device = self.camera?.name ?? "device"
+                    try? self.service.recordImport(device: device,
+                                                   identifier: self.descriptor(for: file).identifier)
+                }
+                return
+            }
+            self.inFlightFile = nil
             let generation = self.inFlightGeneration
             self.downloadSeq += 1
             self.lastActivity = Date()
-            if self.inFlightFile === file { self.inFlightFile = nil }
             if let error {
                 self.failedNames.append("\(file.name ?? "?") — \(error.localizedDescription)")
             } else {
