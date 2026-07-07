@@ -27,7 +27,13 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            MicroGridView(vm: vm, importer: importer)
+            NavigationSplitView {
+                SidebarView(vm: vm)
+            } detail: {
+                MicroGridView(vm: vm, importer: importer)
+            }
+            // Kept outside NavigationSplitView so the viewer covers the whole
+            // window (including the sidebar column), not just the detail pane.
             if vm.viewerIndex != nil {
                 ViewerView(vm: vm)
                     .transition(.opacity)

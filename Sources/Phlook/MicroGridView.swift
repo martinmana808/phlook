@@ -144,14 +144,6 @@ struct MicroGridView: View {
 
     private var filterBar: some View {
         HStack(spacing: 16) {
-            Picker("Filter", selection: $vm.scope) {
-                ForEach([LibraryScope.all, .photos, .videos]) { s in
-                    Text(s.rawValue).tag(s)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 280)
             Picker("Density", selection: $vm.density) {
                 ForEach(GridDensity.allCases) { d in
                     Image(systemName: d.symbol).tag(d)
