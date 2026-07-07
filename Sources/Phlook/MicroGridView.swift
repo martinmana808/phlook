@@ -10,6 +10,7 @@ struct ThumbCell: View {
     let isSelected: Bool
     let showsCheckmark: Bool   // tick only in multi-selection; a lone ring is enough
     let isLive: Bool
+    let side: CGFloat
     @State private var image: NSImage?
 
     var body: some View {
@@ -20,13 +21,13 @@ struct ThumbCell: View {
                 Rectangle().fill(.quaternary)
             }
         }
-        .frame(width: 80, height: 80)
+        .frame(width: side, height: side)
         .clipped()
         .overlay(alignment: .bottomTrailing) {
             if item.fileType == "video", !isLive,
                let text = DurationFormatter.string(seconds: item.duration) {
                 Text(text)
-                    .font(.caption2.monospacedDigit())
+                    .font(side >= 160 ? .caption.monospacedDigit() : .caption2.monospacedDigit())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 4).padding(.vertical, 1)
                     .background(.black.opacity(0.6), in: Capsule())
@@ -36,7 +37,7 @@ struct ThumbCell: View {
         .overlay(alignment: .bottomLeading) {
             if item.fileType == "video", !isLive {
                 Image(systemName: "play.fill")
-                    .font(.system(size: 9))
+                    .font(.system(size: side >= 160 ? 12 : 9))
                     .foregroundStyle(.white)
                     .shadow(radius: 1)
                     .padding(4)
@@ -85,7 +86,7 @@ struct ThumbCell: View {
                 vm.requestTrash(targets.isEmpty ? [item] : targets)
             }
         }
-        .task { image = await vm.thumbnail(for: item) }
+        .task { image = await vm.thumbnail(for: item, size: Int(side * 2)) }
     }
 
     private var trashTitle: String {
@@ -97,7 +98,10 @@ struct ThumbCell: View {
 struct MicroGridView: View {
     @ObservedObject var vm: LibraryViewModel
     @ObservedObject var importer: PhoneImportController
-    private let columns = [GridItem(.adaptive(minimum: 80, maximum: 80), spacing: 2)]
+    private var columns: [GridItem] {
+        let side = CGFloat(vm.density.rawValue)
+        return [GridItem(.adaptive(minimum: side, maximum: side), spacing: 2)]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -129,6 +133,14 @@ struct MicroGridView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(maxWidth: 280)
+            Picker("Density", selection: $vm.density) {
+                ForEach(GridDensity.allCases) { d in
+                    Image(systemName: d.symbol).tag(d)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 110)
             ImportBar(importer: importer)
         }
         .padding(.vertical, 8)
@@ -158,7 +170,8 @@ struct MicroGridView: View {
                                   isSelected: vm.selectedPaths.contains(item.path),
                                   showsCheckmark: vm.selectedPaths.count > 1
                                       && vm.selectedPaths.contains(item.path),
-                                  isLive: vm.isLive(item))
+                                  isLive: vm.isLive(item),
+                                  side: CGFloat(vm.density.rawValue))
                     }
                 }
                 .padding(2)
@@ -190,6 +203,15 @@ private struct GridKeyCatcher: NSViewRepresentable {
                 if event.modifierFlags.contains(.command),
                    event.charactersIgnoringModifiers?.lowercased() == "a" {
                     self.vm.selectAllVisible(); return nil
+                }
+                if event.modifierFlags.contains(.command),
+                   let chars = event.charactersIgnoringModifiers {
+                    if chars == "=" || chars == "+" {
+                        self.vm.stepDensity(1); return nil
+                    }
+                    if chars == "-" {
+                        self.vm.stepDensity(-1); return nil
+                    }
                 }
                 switch event.keyCode {
                 case 53:          // Esc

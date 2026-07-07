@@ -17,6 +17,18 @@ enum MediaFilter: String, CaseIterable, Identifiable {
     }
 }
 
+enum GridDensity: Int, CaseIterable, Identifiable {
+    case micro = 80, medium = 160, large = 240
+    var id: Int { rawValue }
+    var symbol: String {
+        switch self {
+        case .micro: "square.grid.4x3.fill"
+        case .medium: "square.grid.3x2"
+        case .large: "square.grid.2x2"
+        }
+    }
+}
+
 @MainActor
 final class LibraryViewModel: ObservableObject {
     @Published var items: [MediaItem] = []
@@ -37,6 +49,10 @@ final class LibraryViewModel: ObservableObject {
     @Published var selectedPaths: Set<String> = []
     @Published var pendingTrash: [MediaItem]?     // confirmation dialog payload
     @Published var trashFailures: [String]?       // post-delete failure alert
+    @Published var density: GridDensity = GridDensity(
+        rawValue: UserDefaults.standard.integer(forKey: "gridDensity")) ?? .micro {
+        didSet { UserDefaults.standard.set(density.rawValue, forKey: "gridDensity") }
+    }
     private var selectionAnchorPath: String?
     private var refreshEpoch = 0
     let service: IndexingService
@@ -164,6 +180,13 @@ final class LibraryViewModel: ObservableObject {
 
     func selectAllVisible() { selectedPaths = Set(visibleItems.map(\.path)) }
     func clearSelection() { selectedPaths = []; selectionAnchorPath = nil }
+
+    func stepDensity(_ delta: Int) {
+        let all = GridDensity.allCases
+        if let i = all.firstIndex(of: density) {
+            density = all[ViewerMath.clamp(i + delta, count: all.count)]
+        }
+    }
 
     /// Right-click delete: if the clicked item isn't in the selection, the
     /// selection becomes just that item (Photos behavior) before confirming.
