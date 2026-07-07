@@ -8,6 +8,7 @@ struct ViewerView: View {
     @State private var player: AVPlayer?
     @State private var livePlayer: AVPlayer?
     @State private var liveEndObserver: NSObjectProtocol?
+    @State private var liveFailureObserver: NSObjectProtocol?
     @State private var image: NSImage?
     @State private var missing = false
 
@@ -42,6 +43,7 @@ struct ViewerView: View {
             monitor.onEscape = { vm.closeViewer() }
             monitor.onToggleSidebar = { vm.sidebarOpen.toggle() }
             monitor.onDelete = { if let item = vm.currentItem { vm.requestTrash([item]) } }
+            monitor.isSuspended = { vm.pendingTrash != nil || vm.trashFailures != nil || vm.detailsItem != nil }
             monitor.start()
         }
         .onDisappear {
@@ -152,6 +154,13 @@ struct ViewerView: View {
                 self.stopLivePlayback()
             }
         }
+        liveFailureObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: player.currentItem, queue: .main) { _ in
+            Task { @MainActor in
+                self.stopLivePlayback()
+            }
+        }
         player.play()
     }
 
@@ -161,6 +170,10 @@ struct ViewerView: View {
         if let token = liveEndObserver {
             NotificationCenter.default.removeObserver(token)
             liveEndObserver = nil
+        }
+        if let token = liveFailureObserver {
+            NotificationCenter.default.removeObserver(token)
+            liveFailureObserver = nil
         }
     }
 

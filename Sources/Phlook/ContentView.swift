@@ -10,6 +10,15 @@ struct ContentView: View {
         _importer = StateObject(wrappedValue: PhoneImportController(service: vm.service))
     }
 
+    private var trashFailuresMessage: String {
+        let failures = vm.trashFailures ?? []
+        let shown = failures.prefix(10)
+        var lines = shown.joined(separator: "\n")
+        let remaining = failures.count - shown.count
+        if remaining > 0 { lines += "\n…and \(remaining) more" }
+        return lines
+    }
+
     private var showResult: Bool {
         if case .finished = importer.state { return true }
         if case .error = importer.state { return true }
@@ -53,7 +62,7 @@ struct ContentView: View {
                                     set: { if !$0 { vm.trashFailures = nil } })) {
             Button("OK") { vm.trashFailures = nil }
         } message: {
-            Text((vm.trashFailures ?? []).joined(separator: "\n"))
+            Text(trashFailuresMessage)
         }
         .onAppear {
             importer.onLibraryChanged = { vm.load() }

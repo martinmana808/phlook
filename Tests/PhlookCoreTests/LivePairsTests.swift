@@ -77,4 +77,30 @@ struct LivePairsTests {
         ])
         #expect(pairs.hiddenVideoPaths.isEmpty)   // never hide an unreachable file
     }
+
+    @Test func pairsRealLibraryNamingWithDifferentTimestampsAndSuffix() {
+        let pairs = LivePairs.compute(items: [
+            item("/l/2023-12-28_10-35-59_3EFFF3E9-8CBA-4A2B-9D6E-123456789ABC.jpeg", type: "image"),
+            item("/l/2023-12-27_21-35-59_3EFFF3E9-8CBA-4A2B-9D6E-123456789ABC_3.mov", type: "video", duration: 2.8),
+        ])
+        #expect(pairs.hiddenVideoPaths.count == 1)
+        #expect(pairs.videoPath(forImagePath: "/l/2023-12-28_10-35-59_3EFFF3E9-8CBA-4A2B-9D6E-123456789ABC.jpeg")
+                == "/l/2023-12-27_21-35-59_3EFFF3E9-8CBA-4A2B-9D6E-123456789ABC_3.mov")
+    }
+
+    @Test func nonUUIDCoresNeverPairAcrossDifferentTimestamps() {
+        let pairs = LivePairs.compute(items: [
+            item("/l/2026-05-01_10-00-00_IMG_7156.PNG", type: "image"),
+            item("/l/2026-06-09_20-00-00_IMG_7156.MOV", type: "video", duration: 3),
+        ])
+        #expect(pairs.hiddenVideoPaths.isEmpty)   // unrelated same-number files must not pair
+    }
+
+    @Test func uuidPairWithIdenticalTimestampsAlsoPairs() {
+        let pairs = LivePairs.compute(items: [
+            item("/l/2026-07-06_12-00-00_ABCDEF01-1111-2222-3333-444455556666.HEIC", type: "image"),
+            item("/l/2026-07-06_12-00-00_ABCDEF01-1111-2222-3333-444455556666_3.MOV", type: "video", duration: 1.9),
+        ])
+        #expect(pairs.hiddenVideoPaths.count == 1)
+    }
 }

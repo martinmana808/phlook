@@ -18,7 +18,9 @@ public final class IndexingService {
     @discardableResult
     public func reindex() throws -> Int {
         let scanned = try LibraryScanner(root: root).scan()
-        for item in scanned { try index.upsert(item) }
+        for item in scanned where FileManager.default.fileExists(atPath: item.path) {
+            try index.upsert(item)
+        }
         try index.deleteMissing(keepingPaths: Set(scanned.map { $0.path }))
         return try index.count()
     }

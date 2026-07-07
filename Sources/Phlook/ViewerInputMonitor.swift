@@ -10,6 +10,7 @@ final class ViewerInputMonitor {
     var onEscape: () -> Void = {}
     var onToggleSidebar: () -> Void = {}
     var onDelete: () -> Void = {}
+    var isSuspended: () -> Bool = { false }
 
     private var monitor: Any?
     private var accumulatedX: CGFloat = 0
@@ -19,6 +20,7 @@ final class ViewerInputMonitor {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { [weak self] event in
             guard let self else { return event }
+            if self.isSuspended() { return event }
             switch event.type {
             case .keyDown:
                 if event.modifierFlags.contains(.command),

@@ -12,7 +12,7 @@ struct DetailsRows: View {
             if let dims = details.dimensions { row("Dimensions", dims) }
             if let dur = details.duration { row("Duration", dur) }
             if let size = details.fileSize { row("Size", size) }
-            row("Kind", motionPath != nil ? "Live Photo (\(details.kind))" : details.kind)
+            row("Kind", motionPath != nil ? "Live Photo (\(liveKindSuffix))" : details.kind)
             if let motionPath {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Live Photo motion").font(.caption).foregroundStyle(.secondary)
@@ -42,6 +42,13 @@ struct DetailsRows: View {
                 .controlSize(.small)
             }
         }
+    }
+
+    /// "HEIC + MOV" — the still and motion files' uppercased extensions.
+    private var liveKindSuffix: String {
+        let stillExt = (details.path as NSString).pathExtension.uppercased()
+        let motionExt = (motionPath.map { $0 as NSString }?.pathExtension ?? "").uppercased()
+        return "\(stillExt) + \(motionExt)"
     }
 
     private func row(_ label: String, _ value: String) -> some View {

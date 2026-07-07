@@ -9,14 +9,17 @@
 
 A Live Photo arrives from the iPhone as two files — `IMG_1234.HEIC` + a ~3s `IMG_1234.MOV`. Today PHLOOK shows both: the motion file clutters the grid as a "video," doubling every live shot. Photos.app shows one item, badged LIVE, playable on demand.
 
-### Pairing rule (index-level; NO file is modified)
+### Pairing rule (index-level; NO file is modified) — REVISED after live-DB probe
 
+Empirical reality (probe of the real 17.5k-row library): ~2,517 true pairs exist, named like `2023-12-28_10-35-59_<UUID>.jpeg` + `2023-12-27_21-35-59_<UUID>_3.mov` — the two halves carry DIFFERENT timestamp prefixes (image dated by EXIF wall time, video by QuickTime date) and the motion file usually has a `_3` suffix (osxphotos resource naming). Full-stem equality matches zero of them.
+
+Pairing key (per directory): take the filename minus final extension, strip one leading ingest timestamp prefix (`^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_`) if present, strip one trailing `_3` if present → the **core**.
 Two items form a live pair when ALL hold:
-1. Identical filename minus extension (our ingest naming preserves the shared stem: `2026-07-06_12-00-00_IMG_1234.HEIC` / `…_IMG_1234.MOV`).
-2. One is an image, the other a video.
-3. The video's enriched `duration` is `0 < d <= 6.5` seconds (nil/sentinel/longer → not a pair; an unenriched video simply pairs later, after enrichment fills its duration).
+1. Same directory and same core, where EITHER (a) the full stems are identical (same-timestamp case, e.g. fresh iPhone imports), OR (b) the core is UUID-shaped (8-4-4-4-12 hex, case-insensitive) — prefix-stripped matching is restricted to UUID cores to prevent false pairs like an unrelated `IMG_7156.PNG` / `IMG_7156.MOV` from different days.
+2. Exactly one image and exactly one short-video candidate share the core (ambiguous groups pair nothing).
+3. The video's enriched `duration` is `0 < d <= 6.5` seconds (nil/sentinel/longer → not a pair; unenriched videos pair after enrichment).
 
-Rationale: zero new metadata extraction, zero schema change, instant on the existing 17k rows, testable as a pure function. The embedded content-identifier (Apple MakerNote 17 / `com.apple.quicktime.content.identifier`) is the gold-standard link — documented here as future hardening if stem-matching ever misfires; not needed for v1.
+Rationale: zero new metadata extraction, zero schema change, pure and testable; validated against the production DB (≈2,517 pairs, 0 ambiguity under this rule). The embedded content-identifier (Apple MakerNote 17 / `com.apple.quicktime.content.identifier`) remains the gold-standard hardening path.
 
 ### `LivePairs` (PhlookCore, pure)
 

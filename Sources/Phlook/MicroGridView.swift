@@ -175,6 +175,8 @@ private struct GridKeyCatcher: NSViewRepresentable {
             super.init(frame: .zero)
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, self.vm.viewerIndex == nil else { return event }
+                guard self.vm.pendingTrash == nil, self.vm.trashFailures == nil,
+                      self.vm.detailsItem == nil else { return event }
                 if event.modifierFlags.contains(.command),
                    event.charactersIgnoringModifiers?.lowercased() == "a" {
                     self.vm.selectAllVisible(); return nil

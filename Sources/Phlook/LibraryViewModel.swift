@@ -30,6 +30,7 @@ final class LibraryViewModel: ObservableObject {
             guard filter != oldValue else { return }
             closeViewer()
             rebuildVisible()
+            clearSelection()
         }
     }
     @Published private(set) var livePairs: LivePairs = .empty
@@ -37,6 +38,7 @@ final class LibraryViewModel: ObservableObject {
     @Published var pendingTrash: [MediaItem]?     // confirmation dialog payload
     @Published var trashFailures: [String]?       // post-delete failure alert
     private var selectionAnchorPath: String?
+    private var refreshEpoch = 0
     let service: IndexingService
 
     init() {
@@ -51,23 +53,42 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func load() {
+        let epoch = refreshEpoch
         let service = self.service
         isIndexing = true
         Task.detached {
             // 1. Show whatever is already indexed immediately — instant on relaunch.
             let cached = (try? service.items()) ?? []
-            await MainActor.run { self.refreshItems(cached) }
+            await MainActor.run {
+                guard epoch == self.refreshEpoch else {
+                    self.refreshItems((try? service.items()) ?? [])
+                    return
+                }
+                self.refreshItems(cached)
+            }
 
             // 2. Refresh the index in the background, then update the grid.
             _ = try? service.reindex()
             let fresh = (try? service.items()) ?? []
-            await MainActor.run { self.refreshItems(fresh) }
+            await MainActor.run {
+                guard epoch == self.refreshEpoch else {
+                    self.refreshItems((try? service.items()) ?? [])
+                    return
+                }
+                self.refreshItems(fresh)
+            }
 
             // 3. Fill video duration/date/dimensions, then refresh once more.
             let enriched = await service.enrichVideos()
             if enriched > 0 {
                 let final = (try? service.items()) ?? []
-                await MainActor.run { self.refreshItems(final) }
+                await MainActor.run {
+                    guard epoch == self.refreshEpoch else {
+                        self.refreshItems((try? service.items()) ?? [])
+                        return
+                    }
+                    self.refreshItems(final)
+                }
             }
             await MainActor.run { self.isIndexing = false }
         }
@@ -81,7 +102,8 @@ final class LibraryViewModel: ObservableObject {
         items = new
         livePairs = LivePairs.compute(items: new)
         rebuildVisible()
-        selectedPaths = selectedPaths.filter { p in visibleItems.contains { $0.path == p } }
+        let visiblePaths = Set(visibleItems.map(\.path))
+        selectedPaths = selectedPaths.filter(visiblePaths.contains)
         if let openPath {
             viewerIndex = ViewerMath.resolveIndex(path: openPath, in: visibleItems)
         }
@@ -158,6 +180,7 @@ final class LibraryViewModel: ObservableObject {
             let outcome = LibraryTrasher.trash(paths: paths, index: index)
             let fresh = (try? service.items()) ?? []
             await MainActor.run {
+                self.refreshEpoch += 1
                 self.refreshItems(fresh)
                 self.clearSelection()
                 if !outcome.failures.isEmpty { self.trashFailures = outcome.failures }
