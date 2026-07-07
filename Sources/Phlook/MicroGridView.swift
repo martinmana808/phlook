@@ -86,7 +86,7 @@ struct ThumbCell: View {
                 vm.requestTrash(targets.isEmpty ? [item] : targets)
             }
         }
-        .task { image = await vm.thumbnail(for: item, size: Int(side * 2)) }
+        .task(id: side) { image = await vm.thumbnail(for: item, size: Int(side * 2)) }
     }
 
     private var trashTitle: String {

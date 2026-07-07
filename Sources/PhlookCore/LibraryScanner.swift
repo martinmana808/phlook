@@ -23,26 +23,39 @@ public struct LibraryScanner {
         guard let e = FileManager.default.enumerator(
             at: canonicalRoot, includingPropertiesForKeys: keys,
             options: [.skipsHiddenFiles]) else { return ([], []) }
-        for case let rawURL as URL in e {
-            // Enumerated URLs under a canonical root are consistent; resolve once
-            // to normalize /private/{tmp,var} → /var forms for caller compatibility.
-            let url = rawURL.resolvingSymlinksInPath()
+        // FileManager's enumerator always returns fully OS-resolved paths for
+        // children (e.g. /private/var/... even when canonicalRoot itself is
+        // the /var/... form Foundation treats as already canonical), so we
+        // rebase each enumerated path back onto `root` by trailing-component
+        // count. `realDepth` is computed once (not per file) from the true
+        // OS-resolved form of canonicalRoot, so the slice lines up with what
+        // the enumerator actually returns — no per-file symlink resolution.
+        let realDepth: Int = {
+            guard let real = realpath(canonicalRoot.path, nil) else {
+                return canonicalRoot.pathComponents.count
+            }
+            defer { free(real) }
+            return URL(fileURLWithPath: String(cString: real)).pathComponents.count
+        }()
+        for case let url as URL in e {
             let ext = url.pathExtension.lowercased()
             let isImage = Self.imageExts.contains(ext)
             let isVideo = Self.videoExts.contains(ext)
             guard isImage || isVideo else { continue }
             if url.lastPathComponent.hasPrefix("._") { continue }
-            guard let values = try? rawURL.resourceValues(forKeys: Set(keys)),
+            guard let values = try? url.resourceValues(forKeys: Set(keys)),
                   values.isRegularFile == true else { continue }
-            allPaths.insert(url.path)
+            let relativeComponents = url.pathComponents.suffix(from: realDepth)
+            let path = relativeComponents.reduce(root) { $0.appendingPathComponent($1) }.path
+            allPaths.insert(path)
             let size = values.fileSize ?? 0
             let mtime = values.contentModificationDate ?? Date.distantPast
-            if let stamp = known[url.path], stamp.matches(size: size, modifiedAt: mtime) {
+            if let stamp = known[path], stamp.matches(size: size, modifiedAt: mtime) {
                 continue   // unchanged: row stays untouched
             }
-            let (w, h, taken): (Int?, Int?, Date?) = isImage ? Self.imageMeta(rawURL) : (nil, nil, nil)
+            let (w, h, taken): (Int?, Int?, Date?) = isImage ? Self.imageMeta(url) : (nil, nil, nil)
             changed.append(MediaItem(
-                path: url.path, hash: Self.quickHash(rawURL),
+                path: path, hash: Self.quickHash(url),
                 dateTaken: isImage ? (taken ?? values.creationDate) : nil,
                 fileType: isImage ? "image" : "video",
                 width: w, height: h, lastScanned: Date(),
