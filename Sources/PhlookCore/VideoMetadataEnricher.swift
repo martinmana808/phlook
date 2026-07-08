@@ -9,7 +9,7 @@ public struct VideoMetadataEnricher {
     public init() {}
 
     @discardableResult
-    public func enrich(index: MediaIndex) async -> Int {
+    public func enrich(index: MediaIndex, onProgress: (@Sendable (Int) -> Void)? = nil) async -> Int {
         let pending = (try? index.videosNeedingEnrichment()) ?? []
         var processed = 0
         for var item in pending {
@@ -32,6 +32,7 @@ public struct VideoMetadataEnricher {
             item.lastScanned = Date()
             try? index.upsert(item)
             processed += 1
+            if processed % 200 == 0 { onProgress?(processed) }
         }
         return processed
     }

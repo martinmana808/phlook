@@ -202,7 +202,16 @@ final class LibraryViewModel: ObservableObject {
             }
 
             // 3. Fill video duration/date/dimensions, then refresh once more.
-            let enriched = await service.enrichVideos()
+            // Progressive refresh: every 200 processed items during the pass,
+            // re-fetch and apply so the grid/sidebar counts don't sit empty
+            // for minutes while a large one-time backfill runs.
+            let onProgress: @Sendable (Int) -> Void = { _ in
+                Task { @MainActor in
+                    guard epoch == self.refreshEpoch else { return }
+                    self.refreshItems((try? service.items()) ?? [])
+                }
+            }
+            let enriched = await service.enrichVideos(onProgress: onProgress)
             if enriched > 0 {
                 let final = (try? service.items()) ?? []
                 await MainActor.run {
@@ -215,7 +224,7 @@ final class LibraryViewModel: ObservableObject {
             }
 
             // 4. Backfill screenshot/selfie kind flags, then refresh once more.
-            let detected = await service.detectKinds()
+            let detected = await service.detectKinds(onProgress: onProgress)
             if detected > 0 {
                 let final = (try? service.items()) ?? []
                 await MainActor.run {
@@ -228,7 +237,7 @@ final class LibraryViewModel: ObservableObject {
             }
 
             // 5. Backfill Vision scene-category flags, then refresh once more.
-            let classified = await service.classifyScenes()
+            let classified = await service.classifyScenes(onProgress: onProgress)
             if classified > 0 {
                 let final = (try? service.items()) ?? []
                 await MainActor.run {

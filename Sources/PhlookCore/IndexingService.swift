@@ -32,8 +32,8 @@ public final class IndexingService {
 
     /// Post-scan pass: fill video duration/date/dimensions in the background.
     @discardableResult
-    public func enrichVideos() async -> Int {
-        await VideoMetadataEnricher().enrich(index: index)
+    public func enrichVideos(onProgress: (@Sendable (Int) -> Void)? = nil) async -> Int {
+        await VideoMetadataEnricher().enrich(index: index, onProgress: onProgress)
     }
 
     /// Backfill pass for rows predating kind detection (kind_flags == -1
@@ -41,7 +41,7 @@ public final class IndexingService {
     /// flags via KindDetector and upserts. A missing file is marked 0 (tried,
     /// don't retry). Mirrors enrichVideos's shape/idempotency.
     @discardableResult
-    public func detectKinds() async -> Int {
+    public func detectKinds(onProgress: (@Sendable (Int) -> Void)? = nil) async -> Int {
         let pending = (try? index.kindsNeedingDetection()) ?? []
         var processed = 0
         for var item in pending {
@@ -52,6 +52,7 @@ public final class IndexingService {
             item.lastScanned = Date()
             try? index.upsert(item)
             processed += 1
+            if processed % 200 == 0 { onProgress?(processed) }
         }
         return processed
     }
@@ -61,7 +62,7 @@ public final class IndexingService {
     /// bitmask via SceneClassifier and upserts. A missing file is marked 0
     /// (tried, don't retry). Mirrors detectKinds's shape/idempotency.
     @discardableResult
-    public func classifyScenes() async -> Int {
+    public func classifyScenes(onProgress: (@Sendable (Int) -> Void)? = nil) async -> Int {
         let pending = (try? index.scenesNeedingClassification()) ?? []
         var processed = 0
         for var item in pending {
@@ -72,6 +73,7 @@ public final class IndexingService {
             item.lastScanned = Date()
             try? index.upsert(item)
             processed += 1
+            if processed % 200 == 0 { onProgress?(processed) }
         }
         return processed
     }
