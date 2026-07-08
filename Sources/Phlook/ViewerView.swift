@@ -11,6 +11,9 @@ struct ViewerView: View {
     @State private var liveFailureObserver: NSObjectProtocol?
     @State private var image: NSImage?
     @State private var missing = false
+    @State private var zoom: CGFloat = 1
+    @State private var baseZoom: CGFloat = 1
+    @State private var hasSharpened = false
 
     var body: some View {
         ZStack {
@@ -79,9 +82,71 @@ struct ViewerView: View {
         } else if let livePlayer {
             PlayerHostView(player: livePlayer)
         } else if let image {
-            Image(nsImage: image).resizable().scaledToFit()
+            zoomableImage(image)
         } else {
             ProgressView()
+        }
+    }
+
+    @ViewBuilder private func zoomableImage(_ img: NSImage) -> some View {
+        GeometryReader { geo in
+            let fitted = ViewerMath.fitSize(image: img.size, in: geo.size)
+            Group {
+                if zoom <= 1.001 {
+                    // Bypass the ScrollView at 1x: plain scaledToFit stays centered.
+                    Image(nsImage: img).resizable().scaledToFit()
+                } else {
+                    ScrollView([.horizontal, .vertical]) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .frame(width: fitted.width * zoom, height: fitted.height * zoom)
+                    }
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .gesture(magnifyGesture)
+    }
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                zoom = ViewerMath.clampZoom(baseZoom * value.magnification)
+                if zoom >= ViewerMath.sharpenZoomThreshold { checkSharpen() }
+            }
+            .onEnded { _ in
+                baseZoom = zoom
+            }
+    }
+
+    /// Binding used by the top-bar slider/reset so slider drags and the
+    /// magnify gesture agree on the "current base zoom" for the next pinch.
+    private var zoomBinding: Binding<CGFloat> {
+        Binding(
+            get: { zoom },
+            set: { newValue in
+                zoom = ViewerMath.clampZoom(newValue)
+                baseZoom = zoom
+                if zoom >= ViewerMath.sharpenZoomThreshold { checkSharpen() }
+            }
+        )
+    }
+
+    /// Past `sharpenZoomThreshold`, the fitted-then-upscaled decode looks
+    /// soft — re-decode once at a much higher pixel cap and swap it in.
+    private func checkSharpen() {
+        guard !hasSharpened, let item = vm.currentItem, item.fileType != "video" else { return }
+        hasSharpened = true
+        let capturedPath = item.path
+        let url = URL(fileURLWithPath: item.path)
+        let maxPixel = (NSScreen.main.map { $0.frame.width * $0.backingScaleFactor } ?? 2560) * 4
+        Task {
+            let loaded = await Task.detached {
+                Self.downsampledImage(at: url, maxPixel: maxPixel)
+            }.value
+            if vm.currentItem?.path == capturedPath, let loaded {
+                image = loaded
+            }
         }
     }
 
@@ -122,6 +187,16 @@ struct ViewerView: View {
                     }
                 }
                 Spacer()
+                if let item = vm.currentItem, item.fileType != "video", livePlayer == nil {
+                    Button {
+                        zoom = 1
+                        baseZoom = 1
+                    } label: {
+                        Text("1×").foregroundStyle(.white).monospacedDigit()
+                    }
+                    Slider(value: zoomBinding, in: ViewerMath.minZoom...ViewerMath.maxZoom)
+                        .frame(width: 120)
+                }
                 if let item = vm.currentItem, vm.isLive(item) {
                     Button {
                         playLive(for: item)
@@ -183,6 +258,9 @@ struct ViewerView: View {
         player = nil
         image = nil
         missing = false
+        zoom = 1
+        baseZoom = 1
+        hasSharpened = false
         guard let item = vm.currentItem else { return }
         let url = URL(fileURLWithPath: item.path)
         guard FileManager.default.fileExists(atPath: item.path) else {
