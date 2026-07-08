@@ -90,7 +90,13 @@ struct ThumbCell: View {
         }
         // LazyVGrid recycling: a previewing cell scrolled offscreen never gets
         // onHover(false) — stop its player when the cell leaves the hierarchy.
-        .onDisappear { hover.hoverEnded(path: item.path) }
+        // Also drop its stashed frame so a recycled cell can't serve a stale
+        // rect to the viewer's close animation (closeAnimated's fade fallback
+        // covers items with no materialized cell).
+        .onDisappear {
+            hover.hoverEnded(path: item.path)
+            vm.cellFrames.removeValue(forKey: item.path)
+        }
         .gesture(TapGesture(count: 2).onEnded {
             HoverPreviewCoordinator.shared.stop()
             vm.openViewer(item)

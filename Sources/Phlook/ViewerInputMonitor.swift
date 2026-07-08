@@ -11,6 +11,10 @@ final class ViewerInputMonitor {
     var onToggleSidebar: () -> Void = {}
     var onDelete: () -> Void = {}
     var isSuspended: () -> Bool = { false }
+    /// True while the zoomed image's own ScrollView should own horizontal
+    /// scroll/pan gestures — the monitor must pass those events through
+    /// untouched instead of swallowing them for swipe-navigation.
+    var currentZoom: CGFloat = 1
 
     private var monitor: Any?
     private var accumulatedX: CGFloat = 0
@@ -35,6 +39,7 @@ final class ViewerInputMonitor {
                 default:  return event
                 }
             case .scrollWheel:
+                if self.currentZoom > 1 { return event }
                 guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return event }
                 self.accumulatedX += event.scrollingDeltaX
                 if abs(self.accumulatedX) > 60,

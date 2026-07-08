@@ -28,6 +28,7 @@ struct ViewerView: View {
     @State private var fullRect: CGRect = .zero
     @State private var hasStartedOpen = false
     @State private var isClosing = false
+    @State private var openCleanupTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { geo in
@@ -84,7 +85,14 @@ struct ViewerView: View {
             monitor.onToggleSidebar = { vm.sidebarOpen.toggle() }
             monitor.onDelete = { if let item = vm.currentItem { vm.requestTrash([item]) } }
             monitor.isSuspended = { vm.pendingTrash != nil || vm.trashFailures != nil || vm.detailsItem != nil }
+            monitor.currentZoom = zoom
             monitor.start()
+        }
+        .onChange(of: zoom) { _, newZoom in
+            // Mirrored onto the (class) monitor because its stored closures
+            // can't observe this view's @State directly — see
+            // ViewerInputMonitor.currentZoom.
+            monitor.currentZoom = newZoom
         }
         .onDisappear {
             monitor.stop()
@@ -115,14 +123,15 @@ struct ViewerView: View {
         backdropOpacity = 0
         expandFrame = origin
         withAnimation(.easeOut(duration: 0.28)) {
-            expandFrame = fullRect
+            expandFrame = centeredFullRect(for: vm.currentItem)
             backdropOpacity = 1
         }
         withAnimation(.easeOut(duration: 0.22).delay(0.12)) {
             showChrome = true
         }
-        Task {
+        openCleanupTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
             expandFrame = nil
             expandImage = nil
             vm.viewerOpenOriginFrame = nil
@@ -137,6 +146,8 @@ struct ViewerView: View {
     private func closeAnimated() {
         guard !isClosing else { return }
         isClosing = true
+        openCleanupTask?.cancel()
+        openCleanupTask = nil
         guard let path = vm.currentItem?.path, let origin = vm.cellFrames[path], fullRect != .zero else {
             withAnimation(.easeInOut(duration: 0.2)) { contentOpacity = 0 }
             Task {
@@ -148,7 +159,7 @@ struct ViewerView: View {
         if expandImage == nil {
             expandImage = vm.currentItem.flatMap { vm.cachedThumbnail(for: $0, size: vm.density.rawValue) } ?? image
         }
-        expandFrame = fullRect
+        expandFrame = centeredFullRect(for: vm.currentItem)
         withAnimation(.easeIn(duration: 0.15)) { showChrome = false }
         withAnimation(.easeIn(duration: 0.28)) {
             expandFrame = origin
@@ -158,6 +169,22 @@ struct ViewerView: View {
             try? await Task.sleep(nanoseconds: 290_000_000)
             vm.closeViewer()
         }
+    }
+
+    /// The full-window rect, narrowed to the item's own aspect-fit size and
+    /// centered within it. Animating the snapshot to/from this rect (instead
+    /// of the raw `fullRect`) means its frame already matches the image's
+    /// aspect ratio when the real `.scaledToFit` media view takes over, so
+    /// there's no letterbox/aspect "pop" at the open/close handoff. Falls
+    /// back to the raw full rect when the item's natural size isn't known.
+    private func centeredFullRect(for item: MediaItem?) -> CGRect {
+        guard let item, let w = item.width, let h = item.height, w > 0, h > 0,
+              fullRect != .zero else {
+            return fullRect
+        }
+        let size = ViewerMath.fitSize(image: CGSize(width: w, height: h), in: fullRect.size)
+        let origin = CGPoint(x: fullRect.midX - size.width / 2, y: fullRect.midY - size.height / 2)
+        return CGRect(origin: origin, size: size)
     }
 
     @ViewBuilder private var sidebarHost: some View {
@@ -199,10 +226,22 @@ struct ViewerView: View {
                     // Bypass the ScrollView at 1x: plain scaledToFit stays centered.
                     Image(nsImage: img).resizable().scaledToFit()
                 } else {
+                    // Content frame is at least the viewport size so the image
+                    // stays centered until it actually exceeds the viewport in
+                    // that dimension — otherwise the ScrollView's top-leading
+                    // content anchor snaps the image away from center the
+                    // instant zoom crosses 1x.
+                    let contentSize = CGSize(
+                        width: max(fitted.width * zoom, geo.size.width),
+                        height: max(fitted.height * zoom, geo.size.height)
+                    )
                     ScrollView([.horizontal, .vertical]) {
-                        Image(nsImage: img)
-                            .resizable()
-                            .frame(width: fitted.width * zoom, height: fitted.height * zoom)
+                        ZStack {
+                            Image(nsImage: img)
+                                .resizable()
+                                .frame(width: fitted.width * zoom, height: fitted.height * zoom)
+                        }
+                        .frame(width: contentSize.width, height: contentSize.height)
                     }
                 }
             }
