@@ -17,6 +17,27 @@ struct TimelineRail: View {
         buckets.filter { $0.monthStart != nil }
     }
 
+    private static let yearFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    /// Year-start buckets thinned so labels never overlap (≥ 22pt apart).
+    private func yearLabels(height: CGFloat) -> [(y: CGFloat, text: String)] {
+        var result: [(CGFloat, String)] = []
+        var lastY: CGFloat = -.greatestFiniteMagnitude
+        for bucket in datedBuckets where bucket.isYearStart {
+            guard let date = bucket.monthStart else { continue }
+            let y = yFor(bucket: bucket, height: height)
+            guard y - lastY >= 22 else { continue }
+            lastY = y
+            result.append((y, Self.yearFormatter.string(from: date)))
+        }
+        return result
+    }
+
     var body: some View {
         GeometryReader { geo in
             let height = geo.size.height
@@ -30,13 +51,20 @@ struct TimelineRail: View {
                     .fill(.white.opacity(0.001))
                     .frame(width: width, height: height)
 
-                // Faint always-on hint so users know a scrubber exists at all,
-                // even before they hover directly over the strip.
-                if !hovering {
+                // Year labels along the rail — no spine, just the years so the
+                // strip reads as a timeline. Faint when idle, clear on hover.
+                ForEach(yearLabels(height: height), id: \.y) { label in
+                    Text(label.text)
+                        .font(.system(size: 9, weight: .medium)).monospacedDigit()
+                        .foregroundStyle(.secondary.opacity(hovering ? 0.9 : 0.45))
+                        .position(x: width - 18, y: label.y)
+                }
+                // A short tick at each year label, right-aligned, as a subtle anchor.
+                ForEach(yearLabels(height: height), id: \.y) { label in
                     Rectangle()
-                        .fill(.primary.opacity(0.15))
-                        .frame(width: 2, height: height)
-                        .position(x: width - 4, y: height / 2)
+                        .fill(.secondary.opacity(hovering ? 0.7 : 0.3))
+                        .frame(width: 6, height: 1)
+                        .position(x: width - 4, y: label.y)
                 }
 
                 if hovering, let y = currentY {
@@ -50,7 +78,7 @@ struct TimelineRail: View {
                         .font(.caption).monospacedDigit()
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(.regularMaterial, in: Capsule())
-                        .offset(x: -40)
+                        .offset(x: -48)
                         .position(x: width, y: currentY ?? height / 2)
                 }
             }
@@ -81,7 +109,7 @@ struct TimelineRail: View {
                     }
             )
         }
-        .frame(width: 40)
+        .frame(width: 46)
     }
 
     private func yFor(bucket: TimelineBucket, height: CGFloat) -> CGFloat {

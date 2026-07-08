@@ -271,7 +271,13 @@ struct MicroGridView: View {
             .overlay(alignment: .trailing) {
                 if vm.timeline.filter({ $0.monthStart != nil }).count >= 2 {
                     TimelineRail(buckets: vm.timeline) { path in
-                        proxy.scrollTo(path, anchor: .top)
+                        // Defer to the next runloop tick so the LazyVGrid has a
+                        // chance to realize the target before scrolling to it.
+                        DispatchQueue.main.async {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo(path, anchor: .top)
+                            }
+                        }
                     }
                 }
             }

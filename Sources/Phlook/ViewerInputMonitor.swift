@@ -10,6 +10,9 @@ final class ViewerInputMonitor {
     var onEscape: () -> Void = {}
     var onToggleSidebar: () -> Void = {}
     var onDelete: () -> Void = {}
+    /// ⌘+scroll-wheel: fired with the raw vertical scroll delta so the viewer
+    /// can zoom. Positive delta = scroll up.
+    var onZoomDelta: (CGFloat) -> Void = { _ in }
     var isSuspended: () -> Bool = { false }
     /// True while the zoomed image's own ScrollView should own horizontal
     /// scroll/pan gestures — the monitor must pass those events through
@@ -39,6 +42,12 @@ final class ViewerInputMonitor {
                 default:  return event
                 }
             case .scrollWheel:
+                // ⌘+scroll zooms, at any zoom level.
+                if event.modifierFlags.contains(.command) {
+                    self.onZoomDelta(event.scrollingDeltaY)
+                    return nil
+                }
+                // Zoomed in: let the image's own drag-pan own the gesture.
                 if self.currentZoom > 1 { return event }
                 guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return event }
                 self.accumulatedX += event.scrollingDeltaX

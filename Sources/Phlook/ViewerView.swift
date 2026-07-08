@@ -14,7 +14,6 @@ struct ViewerView: View {
     @State private var zoom: CGFloat = 1
     @State private var baseZoom: CGFloat = 1
     @State private var hasSharpened = false
-    @State private var hoveringImage = false
 
     // MARK: Photos-style open/close zoom animation state.
     // `expandFrame` is the current rect (in this view's local space, which
@@ -85,6 +84,15 @@ struct ViewerView: View {
             monitor.onEscape = { closeAnimated() }
             monitor.onToggleSidebar = { vm.sidebarOpen.toggle() }
             monitor.onDelete = { if let item = vm.currentItem { vm.requestTrash([item]) } }
+            monitor.onZoomDelta = { delta in
+                guard let item = vm.currentItem, item.fileType != "video", livePlayer == nil else { return }
+                // Read the live zoom off the monitor (kept fresh via onChange),
+                // not this closure's stale capture. Scroll up → zoom in.
+                let newZoom = ViewerMath.clampZoom(monitor.currentZoom * (1 + delta * 0.01))
+                zoom = newZoom
+                baseZoom = newZoom
+                if newZoom >= ViewerMath.sharpenZoomThreshold { checkSharpen() }
+            }
             monitor.isSuspended = { vm.pendingTrash != nil || vm.trashFailures != nil || vm.detailsItem != nil }
             monitor.currentZoom = zoom
             monitor.start()
@@ -220,54 +228,11 @@ struct ViewerView: View {
     }
 
     @ViewBuilder private func zoomableImage(_ img: NSImage) -> some View {
-        GeometryReader { geo in
-            let fitted = ViewerMath.fitSize(image: img.size, in: geo.size)
-            Group {
-                if zoom <= 1.001 {
-                    // Bypass the ScrollView at 1x: plain scaledToFit stays centered.
-                    Image(nsImage: img).resizable().scaledToFit()
-                } else {
-                    // Content frame is at least the viewport size so the image
-                    // stays centered until it actually exceeds the viewport in
-                    // that dimension — otherwise the ScrollView's top-leading
-                    // content anchor snaps the image away from center the
-                    // instant zoom crosses 1x.
-                    let contentSize = CGSize(
-                        width: max(fitted.width * zoom, geo.size.width),
-                        height: max(fitted.height * zoom, geo.size.height)
-                    )
-                    ScrollView([.horizontal, .vertical]) {
-                        ZStack {
-                            Image(nsImage: img)
-                                .resizable()
-                                .frame(width: fitted.width * zoom, height: fitted.height * zoom)
-                        }
-                        .frame(width: contentSize.width, height: contentSize.height)
-                    }
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-        }
-        .gesture(magnifyGesture)
-        .onHover { isHovering in
-            hoveringImage = isHovering
-            updateCursor()
-        }
-        .onChange(of: zoom) { _, _ in
-            if hoveringImage { updateCursor() }
-        }
-    }
-
-    /// Open-hand while zoomed in and hovering the image, plain arrow otherwise.
-    /// `.set()` calls (rather than push/pop) so entering/leaving/zoom-changing
-    /// can each just re-assert the correct cursor without needing a balanced
-    /// stack of pushes.
-    private func updateCursor() {
-        if hoveringImage, zoom > 1 {
-            NSCursor.openHand.set()
-        } else {
-            NSCursor.arrow.set()
-        }
+        // A real click-drag pan (SwiftUI's ScrollView only pans with a
+        // trackpad two-finger scroll, never a mouse click-drag), with an
+        // open/closed-hand cursor while zoomed.
+        ZoomPanImage(image: img, zoom: zoom)
+            .gesture(magnifyGesture)
     }
 
     private var magnifyGesture: some Gesture {
@@ -475,6 +440,74 @@ extension ViewerView {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects([image])
+    }
+}
+
+/// A zoomable, click-drag-pannable image. At zoom == 1 it is a centered
+/// aspect-fit image; above 1× the image grows and can be dragged around,
+/// clamped to its own edges. The cursor is an open hand while hovering
+/// zoomed, a closed hand while dragging.
+private struct ZoomPanImage: View {
+    let image: NSImage
+    let zoom: CGFloat
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var dragging = false
+    @State private var hovering = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let fitted = ViewerMath.fitSize(image: image.size, in: geo.size)
+            let scaled = CGSize(width: fitted.width * zoom, height: fitted.height * zoom)
+            // Half the overflow past the viewport in each axis = the furthest
+            // the image can be dragged before an edge would show.
+            let maxX = max(0, (scaled.width - geo.size.width) / 2)
+            let maxY = max(0, (scaled.height - geo.size.height) / 2)
+            Image(nsImage: image)
+                .resizable()
+                .frame(width: scaled.width, height: scaled.height)
+                .offset(offset)
+                .frame(width: geo.size.width, height: geo.size.height)  // centers by default
+                .clipped()
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            guard zoom > 1 else { return }
+                            dragging = true
+                            NSCursor.closedHand.set()
+                            offset = clamp(
+                                CGSize(width: lastOffset.width + value.translation.width,
+                                       height: lastOffset.height + value.translation.height),
+                                maxX: maxX, maxY: maxY)
+                        }
+                        .onEnded { _ in
+                            dragging = false
+                            lastOffset = offset
+                            updateCursor()
+                        }
+                )
+                .onHover { hovering = $0; updateCursor() }
+                .onChange(of: zoom) { _, _ in
+                    // Re-clamp when zoom changes (slider / pinch / ⌘-scroll).
+                    offset = clamp(offset, maxX: maxX, maxY: maxY)
+                    lastOffset = offset
+                    updateCursor()
+                }
+        }
+    }
+
+    private func clamp(_ s: CGSize, maxX: CGFloat, maxY: CGFloat) -> CGSize {
+        CGSize(width: min(max(s.width, -maxX), maxX),
+               height: min(max(s.height, -maxY), maxY))
+    }
+
+    private func updateCursor() {
+        if zoom > 1, hovering {
+            (dragging ? NSCursor.closedHand : NSCursor.openHand).set()
+        } else {
+            NSCursor.arrow.set()
+        }
     }
 }
 
