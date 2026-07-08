@@ -82,6 +82,13 @@ struct ThumbCell: View {
             }
         }
         .contentShape(Rectangle())
+        // Drag-out (#13): provides this cell's file for drop onto Finder/FCP/
+        // Mail/etc. v1 = single-item drag (the dragged cell's own URL);
+        // multi-selection drag-out is a documented follow-up, not attempted
+        // here.
+        .onDrag {
+            NSItemProvider(contentsOf: URL(fileURLWithPath: item.path)) ?? NSItemProvider()
+        }
         .onHover { inside in
             guard item.fileType == "video", !isLive,
                   let d = item.duration, d > 0 else { return }
@@ -454,6 +461,12 @@ private struct GridKeyCatcher: NSViewRepresentable {
                     let targets = self.vm.visibleItems.filter { self.vm.selectedPaths.contains($0.path) }
                     guard !targets.isEmpty else { return event }
                     self.vm.requestTrash(targets); return nil
+                case 49:          // Space — toggle Quick Look on the current selection
+                    let targets = self.vm.visibleItems.filter { self.vm.selectedPaths.contains($0.path) }
+                    let urls = targets.map { URL(fileURLWithPath: $0.path) }
+                    guard !urls.isEmpty else { return nil }
+                    QuickLookController.shared.toggle(urls: urls)
+                    return nil
                 default:
                     return event
                 }
