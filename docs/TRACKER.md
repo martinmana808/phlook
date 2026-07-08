@@ -15,18 +15,18 @@ States: ☐ queued · 🔨 in progress · ✅ shipped (merged to main) · 🧪 b
 | 8 | Device browser (phone thumbnails, NEW vs imported) | ☐ | — | folds in per-item import selection (#9) |
 | 9 | Import selection | ☐ | — | subset of #8 |
 | 10 | Live poster-frame picker | ☐ | — | first file-writing feature; own safety design |
-| 11 | Vision categories (local ML) | ☐ | — | feeds sidebar sections |
-| 12 | Quick Look (space bar) | ☐ | — | small |
-| 13 | Drag-out to Finder/FCP | ☐ | — | small |
+| 11 | Vision categories (local ML) | 🧪 | — | feeds sidebar sections |
+| 12 | Quick Look (space bar) | 🧪 | — | small |
+| 13 | Drag-out to Finder/FCP | 🧪 | — | small |
 | 14 | Dedup finder | ☐ | — | content-hash + review UI |
 
 Build order (user-approved 2026-07-07): **#1–5 → #6+7 → rest later.**
 
-| 15 | Viewer zoom animation (grid↔full-screen, Photos-style) | ☐ | — | |
-| 16 | Viewer zoom slider | ☐ | — | |
-| 17 | Years / Months / All Photos views | ☐ | — | Photos-parity grouping; may supersede rail |
-| 18 | Rail v3 (full-height track, year labels, better density scaling) | 🧪 | — | user dislikes v2 |
-| 19 | Date-range result count | 🧪 | — | |
+| 15 | Viewer zoom animation (grid↔full-screen, Photos-style) | 🧪 | — | |
+| 16 | Viewer zoom slider | 🧪 | — | |
+| 17 | Years / Months / All Photos views | 🧪 | — | Photos-parity grouping; may supersede rail |
+| 18 | Timeline rail (v4 hover scrubber + year labels) | 🧪 | — | user dislikes v2 |
+| 19 | Date-range result count | ✅ | — | |
 
 ## Shipped so far (context)
 
