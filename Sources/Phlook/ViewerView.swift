@@ -15,16 +15,53 @@ struct ViewerView: View {
     @State private var baseZoom: CGFloat = 1
     @State private var hasSharpened = false
 
+    // MARK: Photos-style open/close zoom animation state.
+    // `expandFrame` is the current rect (in this view's local space, which
+    // shares its origin with the "phlookWindow" named space — ViewerView is
+    // an unpadded full-window layer) of the animating snapshot layer; nil
+    // means "not animating", i.e. show the real media layer at full opacity.
+    @State private var expandFrame: CGRect?
+    @State private var expandImage: NSImage?
+    @State private var backdropOpacity: Double = 1
+    @State private var showChrome = true
+    @State private var contentOpacity: Double = 1   // fallback whole-view fade when no cell rect is known
+    @State private var fullRect: CGRect = .zero
+    @State private var hasStartedOpen = false
+    @State private var isClosing = false
+
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            media
-            chevrons
-            topBar
+        GeometryReader { geo in
+            ZStack {
+                Color.black.opacity(backdropOpacity).ignoresSafeArea()
+                media.opacity(expandFrame == nil ? 1 : 0)
+                if let expandFrame {
+                    Group {
+                        if let expandImage {
+                            Image(nsImage: expandImage).resizable().aspectRatio(contentMode: .fill)
+                        } else {
+                            Color(white: 0.15)
+                        }
+                    }
+                    .frame(width: max(expandFrame.width, 1), height: max(expandFrame.height, 1))
+                    .clipped()
+                    .position(x: expandFrame.midX, y: expandFrame.midY)
+                    .allowsHitTesting(false)
+                }
+                chevrons.opacity(showChrome ? 1 : 0)
+                topBar.opacity(showChrome ? 1 : 0)
+            }
+            .opacity(contentOpacity)
+            .onAppear {
+                fullRect = CGRect(origin: .zero, size: geo.size)
+                beginOpenAnimation()
+            }
+            .onChange(of: geo.size) { _, newSize in
+                fullRect = CGRect(origin: .zero, size: newSize)
+            }
         }
         // Double-click anywhere (that isn't a control) closes the viewer,
         // mirroring the double-click that opened it from the grid.
-        .gesture(TapGesture(count: 2).onEnded { vm.closeViewer() })
+        .gesture(TapGesture(count: 2).onEnded { closeAnimated() })
         .contextMenu {
             if let item = vm.currentItem {
                 Button("Copy") { Self.copyFile(item) }
@@ -43,7 +80,7 @@ struct ViewerView: View {
         .onAppear {
             monitor.onLeft = { vm.step(-1) }
             monitor.onRight = { vm.step(+1) }
-            monitor.onEscape = { vm.closeViewer() }
+            monitor.onEscape = { closeAnimated() }
             monitor.onToggleSidebar = { vm.sidebarOpen.toggle() }
             monitor.onDelete = { if let item = vm.currentItem { vm.requestTrash([item]) } }
             monitor.isSuspended = { vm.pendingTrash != nil || vm.trashFailures != nil || vm.detailsItem != nil }
@@ -55,6 +92,72 @@ struct ViewerView: View {
             stopLivePlayback()
         }
         .task(id: vm.currentItem?.path) { await loadCurrent() }
+    }
+
+    /// Grows the media layer from the tapped grid cell's frame to the fitted
+    /// full-window rect. Runs once per viewer presentation (guarded by
+    /// `hasStartedOpen`) — subsequent `step()` navigation doesn't retrigger
+    /// it. Falls back to a plain fade when no origin cell frame was captured
+    /// (e.g. opened some other way than a grid double-click, or the frame
+    /// lookup missed).
+    private func beginOpenAnimation() {
+        guard !hasStartedOpen else { return }
+        hasStartedOpen = true
+        guard let origin = vm.viewerOpenOriginFrame, fullRect != .zero else {
+            contentOpacity = 0
+            withAnimation(.easeInOut(duration: 0.2)) { contentOpacity = 1 }
+            return
+        }
+        if let item = vm.currentItem {
+            expandImage = vm.cachedThumbnail(for: item, size: vm.density.rawValue)
+        }
+        showChrome = false
+        backdropOpacity = 0
+        expandFrame = origin
+        withAnimation(.easeOut(duration: 0.28)) {
+            expandFrame = fullRect
+            backdropOpacity = 1
+        }
+        withAnimation(.easeOut(duration: 0.22).delay(0.12)) {
+            showChrome = true
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            expandFrame = nil
+            expandImage = nil
+            vm.viewerOpenOriginFrame = nil
+        }
+    }
+
+    /// Shrinks the media layer back to the (re-resolved — the grid may have
+    /// scrolled while the viewer was open) origin cell's current frame, then
+    /// closes the viewer. Falls back to a plain fade if the cell is no
+    /// longer materialized (scrolled offscreen, filtered out, deleted).
+    /// All close paths (Esc, ✕, double-click) route through here.
+    private func closeAnimated() {
+        guard !isClosing else { return }
+        isClosing = true
+        guard let path = vm.currentItem?.path, let origin = vm.cellFrames[path], fullRect != .zero else {
+            withAnimation(.easeInOut(duration: 0.2)) { contentOpacity = 0 }
+            Task {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                vm.closeViewer()
+            }
+            return
+        }
+        if expandImage == nil {
+            expandImage = vm.currentItem.flatMap { vm.cachedThumbnail(for: $0, size: vm.density.rawValue) } ?? image
+        }
+        expandFrame = fullRect
+        withAnimation(.easeIn(duration: 0.15)) { showChrome = false }
+        withAnimation(.easeIn(duration: 0.28)) {
+            expandFrame = origin
+            backdropOpacity = 0
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 290_000_000)
+            vm.closeViewer()
+        }
     }
 
     @ViewBuilder private var sidebarHost: some View {
@@ -173,7 +276,7 @@ struct ViewerView: View {
     private var topBar: some View {
         VStack {
             HStack(spacing: 12) {
-                Button { vm.closeViewer() } label: {
+                Button { closeAnimated() } label: {
                     Image(systemName: "xmark").foregroundStyle(.white)
                 }
                 .keyboardShortcut(.cancelAction)

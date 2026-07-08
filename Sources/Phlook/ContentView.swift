@@ -36,10 +36,15 @@ struct ContentView: View {
             // window (including the sidebar column), not just the detail pane.
             if vm.viewerIndex != nil {
                 ViewerView(vm: vm)
-                    .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.15), value: vm.viewerIndex != nil)
+        // Shared coordinate space for the Photos-style expand/collapse
+        // animation: ThumbCell stashes each cell's frame in this space
+        // (vm.cellFrames); ViewerView reads it to grow/shrink its media
+        // layer from/to the tapped cell. ViewerView itself drives its own
+        // open/close timing (see closeAnimated/beginOpenAnimation), so no
+        // mount-transition animation is applied here — that would double up.
+        .coordinateSpace(name: "phlookWindow")
         .sheet(item: $vm.detailsItem) { item in
             DetailsModal(
                 item: item,

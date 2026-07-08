@@ -26,6 +26,18 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var fullTimeline: [TimelineBucket] = []
     @Published var isIndexing = false
     @Published var viewerIndex: Int?
+    /// The tapped grid cell's frame (in the shared "phlookWindow" coordinate
+    /// space), captured at `openViewer` time so ViewerView can animate its
+    /// media layer expanding from that rect. Not touched on subsequent
+    /// navigation (`step`) — only the initial open.
+    @Published var viewerOpenOriginFrame: CGRect?
+    /// Live-updated frame of every currently materialized grid cell, keyed by
+    /// path, in the "phlookWindow" coordinate space. Deliberately NOT
+    /// `@Published`: it's written on every scroll/layout pass by every
+    /// visible `ThumbCell`, and turning that into a published mutation would
+    /// re-render the whole view tree on every frame. Only read at
+    /// open/close time to resolve the animation's target rect.
+    var cellFrames: [String: CGRect] = [:]
     @Published var sidebarOpen = false
     @Published var detailsItem: MediaItem?   // grid "View Details" modal
     @Published var scope: LibraryScope = .all {
@@ -207,6 +219,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func openViewer(_ item: MediaItem) {
+        viewerOpenOriginFrame = cellFrames[item.path]
         viewerIndex = ViewerMath.resolveIndex(path: item.path, in: visibleItems)
     }
 
@@ -228,6 +241,13 @@ final class LibraryViewModel: ObservableObject {
         let cost = Int(image.size.width * image.size.height * 4)
         thumbCache.setObject(image, forKey: key, cost: cost)
         return image
+    }
+
+    /// Synchronous cache-only lookup — used to seed the viewer's open/close
+    /// zoom animation with content immediately, without waiting on the async
+    /// disk/QuickLook path `thumbnail(for:size:)` uses.
+    func cachedThumbnail(for item: MediaItem, size: Int) -> NSImage? {
+        thumbCache.object(forKey: "\(item.path)#\(size)" as NSString)
     }
 
     func isLive(_ item: MediaItem) -> Bool {

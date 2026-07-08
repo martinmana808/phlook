@@ -27,6 +27,19 @@ struct ThumbCell: View {
         }
         .frame(width: side, height: side)
         .clipped()
+        // Stash this cell's frame (in the shared "phlookWindow" space) so the
+        // viewer's open/close animation can grow/shrink from/to it, even
+        // after scrolling moves the cell around.
+        .background(
+            GeometryReader { geo in
+                let frame = geo.frame(in: .named("phlookWindow"))
+                Color.clear
+                    .onAppear { vm.cellFrames[item.path] = frame }
+                    .onChange(of: frame) { _, newFrame in
+                        vm.cellFrames[item.path] = newFrame
+                    }
+            }
+        )
         .overlay(alignment: .bottomTrailing) {
             if item.fileType == "video", !isLive,
                let text = DurationFormatter.string(seconds: item.duration) {
