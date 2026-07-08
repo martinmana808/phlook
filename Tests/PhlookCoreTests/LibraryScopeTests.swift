@@ -4,9 +4,10 @@ import Foundation
 
 struct LibraryScopeTests {
     func mkItem(path: String, fileType: String, hidden: Bool = false,
-                kindFlags: Int = 0, dateTaken: Date? = nil) -> MediaItem {
+                kindFlags: Int = 0, sceneFlags: Int = 0, dateTaken: Date? = nil) -> MediaItem {
         MediaItem(path: path, hash: "h", dateTaken: dateTaken, fileType: fileType,
-                  width: nil, height: nil, lastScanned: Date(), hidden: hidden, kindFlags: kindFlags)
+                  width: nil, height: nil, lastScanned: Date(), hidden: hidden,
+                  kindFlags: kindFlags, sceneFlags: sceneFlags)
     }
 
     // MARK: - Hidden exclusion / inversion
@@ -105,6 +106,35 @@ struct LibraryScopeTests {
                             kindFlags: KindFlags.screenshot.rawValue | KindFlags.selfie.rawValue)
         #expect(!LibraryScope.screenshots.matches(video, livePairs: .empty))
         #expect(!LibraryScope.selfies.matches(video, livePairs: .empty))
+    }
+
+    // MARK: - Scene category flags (#11)
+
+    @Test func categoryScopeMatchesOnlyItsBit() {
+        let food = mkItem(path: "/food.jpg", fileType: "image", sceneFlags: SceneCategory.food.rawValue)
+        let animal = mkItem(path: "/animal.jpg", fileType: "image", sceneFlags: SceneCategory.animal.rawValue)
+        #expect(LibraryScope.categoryFood.matches(food, livePairs: .empty))
+        #expect(!LibraryScope.categoryFood.matches(animal, livePairs: .empty))
+    }
+
+    @Test func categoryScopeMatchesCombinedBits() {
+        let both = mkItem(path: "/beach.jpg", fileType: "image",
+                           sceneFlags: SceneCategory.beach.rawValue | SceneCategory.water.rawValue)
+        #expect(LibraryScope.categoryBeach.matches(both, livePairs: .empty))
+        #expect(LibraryScope.categoryWater.matches(both, livePairs: .empty))
+        #expect(!LibraryScope.categoryFood.matches(both, livePairs: .empty))
+    }
+
+    @Test func categoryScopeNeverMatchesVideos() {
+        let video = mkItem(path: "/a.mov", fileType: "video", sceneFlags: SceneCategory.food.rawValue)
+        #expect(!LibraryScope.categoryFood.matches(video, livePairs: .empty))
+    }
+
+    @Test func categoryScopeExcludesUnclassifiedSentinel() {
+        let unclassified = mkItem(path: "/u.jpg", fileType: "image", sceneFlags: -1)
+        for scope in LibraryScope.allCases where scope.sceneCategory != nil {
+            #expect(!scope.matches(unclassified, livePairs: .empty))
+        }
     }
 }
 

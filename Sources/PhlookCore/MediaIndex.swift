@@ -37,7 +37,8 @@ public final class MediaIndex {
                     file_size INTEGER,
                     modified_at TEXT,
                     hidden INTEGER NOT NULL DEFAULT 0,
-                    kind_flags INTEGER NOT NULL DEFAULT 0
+                    kind_flags INTEGER NOT NULL DEFAULT 0,
+                    scene_flags INTEGER NOT NULL DEFAULT 0
                 );
             """)
             // Databases created before the duration column existed:
@@ -89,6 +90,17 @@ public final class MediaIndex {
                 try db.execute(sql: "UPDATE files SET kind_flags = 0 WHERE file_type = 'video'")
                 try db.execute(sql: "PRAGMA user_version = 5")
             }
+            if version < 6 {
+                let cols = try db.columns(in: "files").map(\.name)
+                if !cols.contains("scene_flags") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN scene_flags INTEGER NOT NULL DEFAULT 0")
+                }
+                // Pre-existing rows: mark scene unknown so the classifier
+                // picks them up, then exclude videos (Vision only runs on images).
+                try db.execute(sql: "UPDATE files SET scene_flags = -1")
+                try db.execute(sql: "UPDATE files SET scene_flags = 0 WHERE file_type = 'video'")
+                try db.execute(sql: "PRAGMA user_version = 6")
+            }
         }
     }
 
@@ -104,6 +116,7 @@ public final class MediaIndex {
                     existing.duration = item.duration
                     // hidden survives a file replacement: user intent outlives content.
                     existing.kindFlags = item.kindFlags
+                    existing.sceneFlags = item.sceneFlags
                 } else {
                     // Same content: never wipe enriched values with a scan's nils.
                     existing.dateTaken = item.dateTaken ?? existing.dateTaken
@@ -114,6 +127,10 @@ public final class MediaIndex {
                     // real info, or existing is still the unknown sentinel.
                     existing.kindFlags = item.kindFlags != 0 ? item.kindFlags
                         : (existing.kindFlags == -1 ? item.kindFlags : existing.kindFlags)
+                    // Scan may not know scene: keep existing unless incoming
+                    // has real info, or existing is still the unknown sentinel.
+                    existing.sceneFlags = item.sceneFlags != 0 ? item.sceneFlags
+                        : (existing.sceneFlags == -1 ? item.sceneFlags : existing.sceneFlags)
                 }
                 // hidden is never touched by upsert in either branch — only
                 // setHidden writes it, so a rescan or file replacement can't unhide.
@@ -162,6 +179,14 @@ public final class MediaIndex {
     func setKindFlagsForTesting(path: String, flags: Int) throws {
         try dbQueue.write { db in
             try db.execute(sql: "UPDATE files SET kind_flags = ? WHERE path = ?",
+                           arguments: [flags, path])
+        }
+    }
+
+    /// Test support: force a row's scene_flags directly (simulate pre-v6 sentinel state).
+    func setSceneFlagsForTesting(path: String, flags: Int) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE files SET scene_flags = ? WHERE path = ?",
                            arguments: [flags, path])
         }
     }
@@ -229,6 +254,17 @@ public final class MediaIndex {
             try MediaItem.fetchAll(db, sql: """
                 SELECT * FROM files
                 WHERE kind_flags = -1 AND file_type = 'image'
+            """)
+        }
+    }
+
+    /// Image rows whose scene categories haven't been classified yet (Vision
+    /// pass). Videos are never classified, so they're excluded.
+    public func scenesNeedingClassification() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.fetchAll(db, sql: """
+                SELECT * FROM files
+                WHERE scene_flags = -1 AND file_type = 'image'
             """)
         }
     }

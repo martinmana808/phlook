@@ -38,6 +38,13 @@ struct SidebarView: View {
                     row(.screenshots, symbol: "camera.viewfinder")
                     row(.selfies, symbol: "person.crop.square")
                 }
+                if !populatedCategoryScopes.isEmpty {
+                    Section("Categories") {
+                        ForEach(populatedCategoryScopes) { scope in
+                            row(scope, symbol: scope.sceneCategory?.symbol ?? "square.grid.2x2")
+                        }
+                    }
+                }
                 Section {
                     row(.hidden, symbol: vm.hiddenUnlocked ? "lock.open" : "lock.fill")
                 }
@@ -48,6 +55,17 @@ struct SidebarView: View {
                 .padding(12)
         }
         .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+    }
+
+    /// Curated display order for the Categories section, filtered to scopes
+    /// with at least one match — an empty category never clutters the sidebar.
+    private var populatedCategoryScopes: [LibraryScope] {
+        let order: [LibraryScope] = [
+            .categoryNature, .categoryFood, .categoryDocument, .categoryAnimal,
+            .categoryVehicle, .categoryPlant, .categoryWater, .categoryBuilding,
+            .categorySky, .categoryArt, .categoryText, .categoryBeach,
+        ]
+        return order.filter { (vm.scopeCounts[$0] ?? 0) > 0 }
     }
 
     @ViewBuilder

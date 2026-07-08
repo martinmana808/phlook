@@ -56,6 +56,26 @@ public final class IndexingService {
         return processed
     }
 
+    /// Backfill pass for rows predating scene classification (scene_flags ==
+    /// -1 sentinel, see MediaIndex migration v6): computes the scene-category
+    /// bitmask via SceneClassifier and upserts. A missing file is marked 0
+    /// (tried, don't retry). Mirrors detectKinds's shape/idempotency.
+    @discardableResult
+    public func classifyScenes() async -> Int {
+        let pending = (try? index.scenesNeedingClassification()) ?? []
+        var processed = 0
+        for var item in pending {
+            let url = URL(fileURLWithPath: item.path)
+            item.sceneFlags = FileManager.default.fileExists(atPath: url.path)
+                ? SceneClassifier.classify(imageAt: url)
+                : 0
+            item.lastScanned = Date()
+            try? index.upsert(item)
+            processed += 1
+        }
+        return processed
+    }
+
     public func recordImport(device: String, identifier: String) throws {
         try index.recordImport(device: device, identifier: identifier)
     }

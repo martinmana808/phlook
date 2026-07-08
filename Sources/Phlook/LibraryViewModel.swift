@@ -226,6 +226,19 @@ final class LibraryViewModel: ObservableObject {
                     self.refreshItems(final)
                 }
             }
+
+            // 5. Backfill Vision scene-category flags, then refresh once more.
+            let classified = await service.classifyScenes()
+            if classified > 0 {
+                let final = (try? service.items()) ?? []
+                await MainActor.run {
+                    guard epoch == self.refreshEpoch else {
+                        self.refreshItems((try? service.items()) ?? [])
+                        return
+                    }
+                    self.refreshItems(final)
+                }
+            }
             await MainActor.run { self.isIndexing = false }
         }
     }

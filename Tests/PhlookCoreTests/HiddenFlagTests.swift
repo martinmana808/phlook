@@ -7,9 +7,9 @@ struct HiddenFlagTests {
         try MediaIndex(dbPath: FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".db").path)
     }
-    func mkItem(_ path: String, kindFlags: Int = 0) -> MediaItem {
+    func mkItem(_ path: String, kindFlags: Int = 0, sceneFlags: Int = 0) -> MediaItem {
         MediaItem(path: path, hash: "h", dateTaken: nil, fileType: "image",
-                  width: nil, height: nil, lastScanned: Date(), kindFlags: kindFlags)
+                  width: nil, height: nil, lastScanned: Date(), kindFlags: kindFlags, sceneFlags: sceneFlags)
     }
 
     @Test func setHiddenRoundTrip() throws {
@@ -46,5 +46,28 @@ struct HiddenFlagTests {
         try index.upsert(mkItem("/a.jpg"))
         try index.setKindFlagsForTesting(path: "/a.jpg", flags: -1)
         #expect(try index.kindsNeedingDetection().map(\.path) == ["/a.jpg"])
+    }
+
+    @Test func sceneFlagsPreservedAgainstZeroScan() throws {
+        let index = try makeIndex()
+        try index.upsert(mkItem("/a.jpg", sceneFlags: 2))   // detected food
+        try index.upsert(mkItem("/a.jpg", sceneFlags: 0))   // later same-hash scan, no info
+        #expect(try #require(try index.item(forPath: "/a.jpg")).sceneFlags == 2)
+    }
+
+    @Test func sceneFlagsTakenVerbatimOnChangedHash() throws {
+        let index = try makeIndex()
+        try index.upsert(mkItem("/a.jpg", sceneFlags: 2))
+        var changed = mkItem("/a.jpg", sceneFlags: 0)
+        changed.hash = "different"
+        try index.upsert(changed)
+        #expect(try #require(try index.item(forPath: "/a.jpg")).sceneFlags == 0)
+    }
+
+    @Test func preexistingRowsGetSceneUnknownSentinel() throws {
+        let index = try makeIndex()
+        try index.upsert(mkItem("/a.jpg"))
+        try index.setSceneFlagsForTesting(path: "/a.jpg", flags: -1)
+        #expect(try index.scenesNeedingClassification().map(\.path) == ["/a.jpg"])
     }
 }

@@ -59,6 +59,55 @@ struct MediaIndexMigrationTests {
         _ = try MediaIndex(dbPath: path)   // second open must not throw
     }
 
+    @Test func freshDatabaseDefaultsSceneFlagsToZero() throws {
+        let index = try MediaIndex(dbPath: tempDBPath())
+        try index.upsert(makeItem())
+        let item = try #require(try index.item(forPath: "/x/a.mov"))
+        #expect(item.sceneFlags == 0)
+    }
+
+    @Test func preV6DatabaseGainsSceneFlagsColumnAndSentinel() throws {
+        // Simulate a pre-v6 database (has kind_flags but not scene_flags).
+        let path = tempDBPath()
+        let queue = try DatabaseQueue(path: path)
+        try queue.write { db in
+            try db.execute(sql: """
+                CREATE TABLE files (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    path TEXT UNIQUE NOT NULL,
+                    hash TEXT,
+                    date_taken TEXT,
+                    file_type TEXT,
+                    width INTEGER,
+                    height INTEGER,
+                    last_scanned TEXT,
+                    duration REAL,
+                    file_size INTEGER,
+                    modified_at TEXT,
+                    hidden INTEGER NOT NULL DEFAULT 0,
+                    kind_flags INTEGER NOT NULL DEFAULT 0
+                );
+            """)
+            try db.execute(sql: """
+                INSERT INTO files (path, hash, file_type, last_scanned)
+                VALUES ('/old/photo.jpg', 'h', 'image', '2026-01-01T00:00:00Z')
+            """)
+            try db.execute(sql: """
+                INSERT INTO files (path, hash, file_type, last_scanned)
+                VALUES ('/old/movie.mov', 'h', 'video', '2026-01-01T00:00:00Z')
+            """)
+            try db.execute(sql: "PRAGMA user_version = 5")
+        }
+        try queue.close()
+
+        let index = try MediaIndex(dbPath: path)   // migration must ALTER + backfill sentinel
+        let photo = try #require(try index.item(forPath: "/old/photo.jpg"))
+        #expect(photo.sceneFlags == -1)             // image: unknown, needs classification
+        let movie = try #require(try index.item(forPath: "/old/movie.mov"))
+        #expect(movie.sceneFlags == 0)               // video: never classified
+        #expect(try index.scenesNeedingClassification().map(\.path) == ["/old/photo.jpg"])
+    }
+
     @Test func upsertPreservesEnrichedFieldsAgainstNilScan() throws {
         let index = try MediaIndex(dbPath: tempDBPath())
         let enrichedDate = Date(timeIntervalSince1970: 1_700_000_000)
