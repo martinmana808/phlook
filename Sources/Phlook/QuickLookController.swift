@@ -11,6 +11,10 @@ final class QuickLookController: NSObject, @preconcurrency QLPreviewPanelDataSou
 
     private var urls: [NSURL] = []
 
+    /// Whether the Quick Look panel is currently on screen. The grid's key
+    /// monitor checks this to hand the keyboard entirely to QL while it's up.
+    var isVisible: Bool { QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared().isVisible }
+
     /// Toggles the panel for the given URLs: closes it if already open,
     /// otherwise loads `urls` and opens it. No-op if `urls` is empty.
     func toggle(urls: [URL]) {

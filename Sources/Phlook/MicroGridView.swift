@@ -431,6 +431,10 @@ private struct GridKeyCatcher: NSViewRepresentable {
             super.init(frame: .zero)
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, self.vm.viewerIndex == nil else { return event }
+                // While the Quick Look panel is up it owns the keyboard
+                // entirely (Esc closes it, arrows cycle, space toggles) — don't
+                // let this monitor intercept those keys.
+                if QuickLookController.shared.isVisible { return event }
                 guard self.vm.pendingTrash == nil, self.vm.trashFailures == nil,
                       self.vm.detailsItem == nil else { return event }
                 guard self.vm.timeMode == .all else { return event }
