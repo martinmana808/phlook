@@ -186,6 +186,16 @@ struct MicroGridView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 110)
+            Spacer()
+            Picker("Time Mode", selection: $vm.timeMode) {
+                Text("Years").tag(TimeMode.years)
+                Text("Months").tag(TimeMode.months)
+                Text("All").tag(TimeMode.all)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 220)
+            Spacer()
             ImportBar(importer: importer)
         }
         .padding(.vertical, 8)
@@ -228,29 +238,133 @@ struct MicroGridView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 2) {
-                        ForEach(vm.visibleItems, id: \.path) { item in
-                            ThumbCell(item: item, vm: vm,
-                                      isSelected: vm.selectedPaths.contains(item.path),
-                                      showsCheckmark: vm.selectedPaths.count > 1
-                                          && vm.selectedPaths.contains(item.path),
-                                      isLive: vm.isLive(item),
-                                      side: CGFloat(vm.density.rawValue))
-                                .id(item.path)
-                        }
+            switch vm.timeMode {
+            case .all: allGrid
+            case .months: monthsList
+            case .years: yearsGrid
+            }
+        }
+    }
+
+    private var allGrid: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 2) {
+                    ForEach(vm.visibleItems, id: \.path) { item in
+                        ThumbCell(item: item, vm: vm,
+                                  isSelected: vm.selectedPaths.contains(item.path),
+                                  showsCheckmark: vm.selectedPaths.count > 1
+                                      && vm.selectedPaths.contains(item.path),
+                                  isLive: vm.isLive(item),
+                                  side: CGFloat(vm.density.rawValue))
+                            .id(item.path)
                     }
-                    .padding(2)
                 }
-                .overlay(alignment: .trailing) {
-                    if vm.timeline.filter({ $0.monthStart != nil }).count >= 2 {
-                        TimelineRail(buckets: vm.timeline) { path in
-                            proxy.scrollTo(path, anchor: .top)
-                        }
+                .padding(2)
+            }
+            .overlay(alignment: .trailing) {
+                if vm.timeline.filter({ $0.monthStart != nil }).count >= 2 {
+                    TimelineRail(buckets: vm.timeline) { path in
+                        proxy.scrollTo(path, anchor: .top)
                     }
                 }
             }
+            .onAppear { consumePendingScroll(proxy) }
+            .onChange(of: vm.pendingScrollPath) { _, _ in consumePendingScroll(proxy) }
+        }
+    }
+
+    private func consumePendingScroll(_ proxy: ScrollViewProxy) {
+        guard let path = vm.pendingScrollPath else { return }
+        vm.pendingScrollPath = nil
+        DispatchQueue.main.async {
+            withAnimation { proxy.scrollTo(path, anchor: .top) }
+        }
+    }
+
+    private var monthsList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(vm.timeline.filter { $0.monthStart != nil }, id: \.firstItemPath) { bucket in
+                        TimeCard(
+                            title: bucket.label, count: bucket.count,
+                            item: vm.item(forPath: bucket.firstItemPath), vm: vm, height: 200
+                        ) {
+                            vm.pendingScrollPath = bucket.firstItemPath
+                            vm.timeMode = .all
+                        }
+                        .id(bucket.firstItemPath)
+                    }
+                }
+                .padding(12)
+            }
+            .onAppear { consumePendingScroll(proxy) }
+            .onChange(of: vm.pendingScrollPath) { _, _ in consumePendingScroll(proxy) }
+        }
+    }
+
+    private var yearsGrid: some View {
+        let columns = [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 12)]
+        return ScrollView {
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(vm.yearBuckets, id: \.year) { bucket in
+                    TimeCard(
+                        title: bucket.label, count: bucket.count,
+                        item: vm.item(forPath: bucket.firstItemPath), vm: vm, height: 160
+                    ) {
+                        vm.pendingScrollPath = bucket.firstItemPath
+                        vm.timeMode = .months
+                    }
+                }
+            }
+            .padding(12)
+        }
+    }
+}
+
+/// A key-photo card used by Months and Years mode: pure navigation, no
+/// selection/context-menu surface (spec: selection is All-mode only).
+private struct TimeCard: View {
+    let title: String
+    let count: Int
+    let item: MediaItem?
+    let vm: LibraryViewModel
+    let height: CGFloat
+    let action: () -> Void
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            if let image {
+                Image(nsImage: image).resizable().scaledToFill()
+            } else {
+                Rectangle().fill(.quaternary)
+            }
+            LinearGradient(colors: [.black.opacity(0.55), .clear],
+                           startPoint: .bottom, endPoint: .top)
+                .frame(height: 60)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+            HStack {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                Spacer()
+                Text("\(count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(.black.opacity(0.4), in: Capsule())
+            }
+            .padding(10)
+        }
+        .frame(height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(Rectangle())
+        .onTapGesture { action() }
+        .task(id: item?.path) {
+            guard let item else { image = nil; return }
+            image = await vm.thumbnail(for: item, size: 320)
         }
     }
 }
@@ -275,6 +389,7 @@ private struct GridKeyCatcher: NSViewRepresentable {
                 guard let self, self.vm.viewerIndex == nil else { return event }
                 guard self.vm.pendingTrash == nil, self.vm.trashFailures == nil,
                       self.vm.detailsItem == nil else { return event }
+                guard self.vm.timeMode == .all else { return event }
                 if event.modifierFlags.contains(.command),
                    event.charactersIgnoringModifiers?.lowercased() == "a" {
                     self.vm.selectAllVisible(); return nil

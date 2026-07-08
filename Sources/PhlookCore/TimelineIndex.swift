@@ -12,6 +12,13 @@ public struct TimelineBucket: Equatable {
     public let densityFraction: Double
 }
 
+public struct YearBucket: Equatable {
+    public let year: Int
+    public let label: String
+    public let firstItemPath: String
+    public let count: Int
+}
+
 public enum TimelineIndex {
     private static let monthFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -92,5 +99,38 @@ public enum TimelineIndex {
                                   isYearStart: isFirst, yFraction: yFraction,
                                   densityFraction: densityFraction)
         }
+    }
+
+    /// Groups dated items by year, in input order (assumed date-desc). Items
+    /// with no `dateTaken` are excluded entirely — there is no "Undated" year
+    /// bucket, unlike the month-level `compute(items:)`.
+    public static func yearBuckets(items: [MediaItem]) -> [YearBucket] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        var buckets: [YearBucket] = []
+        var currentYear: Int?
+        var currentFirst: String?
+        var currentCount = 0
+
+        func flush() {
+            if let year = currentYear, let first = currentFirst, currentCount > 0 {
+                buckets.append(YearBucket(year: year, label: String(year),
+                                          firstItemPath: first, count: currentCount))
+            }
+            currentYear = nil; currentFirst = nil; currentCount = 0
+        }
+
+        for item in items {
+            guard let date = item.dateTaken else { continue }
+            let year = calendar.component(.year, from: date)
+            if year != currentYear {
+                flush()
+                currentYear = year
+                currentFirst = item.path
+            }
+            currentCount += 1
+        }
+        flush()
+        return buckets
     }
 }

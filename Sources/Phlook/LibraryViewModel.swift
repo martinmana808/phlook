@@ -1,6 +1,12 @@
 import SwiftUI
 import PhlookCore
 
+/// Time-browser view mode (Part 4 of the zoom-views spec). Session-only —
+/// deliberately not persisted to UserDefaults, unlike `GridDensity`.
+enum TimeMode {
+    case years, months, all
+}
+
 enum GridDensity: Int, CaseIterable, Identifiable {
     case micro = 80, medium = 160, large = 240
     var id: Int { rawValue }
@@ -24,6 +30,13 @@ final class LibraryViewModel: ObservableObject {
     /// date-filtered `visibleItems` instead, the slider's own filtering would
     /// shrink its domain on every drag and it could never widen back out.
     @Published private(set) var fullTimeline: [TimelineBucket] = []
+    @Published private(set) var yearBuckets: [YearBucket] = []
+    /// Years / Months / All Photos time browser mode (Part 4). Session-only.
+    @Published var timeMode: TimeMode = .all
+    /// A path the All grid (or Months list) should scroll to on next
+    /// appearance — set by Years/Months card taps, consumed (and cleared) by
+    /// the destination view's onChange/onAppear.
+    @Published var pendingScrollPath: String?
     @Published var isIndexing = false
     @Published var viewerIndex: Int?
     /// The tapped grid cell's frame (in the shared "phlookWindow" coordinate
@@ -48,6 +61,7 @@ final class LibraryViewModel: ObservableObject {
             clearSelection()
             rebuildVisible()
             timeline = TimelineIndex.compute(items: visibleItems)
+            yearBuckets = TimelineIndex.yearBuckets(items: visibleItems)
             fullTimeline = TimelineIndex.compute(items: scopedItems())
         }
     }
@@ -56,6 +70,7 @@ final class LibraryViewModel: ObservableObject {
             guard dateRange != oldValue else { return }
             rebuildVisible()
             timeline = TimelineIndex.compute(items: visibleItems)
+            yearBuckets = TimelineIndex.yearBuckets(items: visibleItems)
         }
     }
     /// Touch ID / password gate for `.hidden`; relocked whenever `scope`
@@ -66,6 +81,7 @@ final class LibraryViewModel: ObservableObject {
         didSet {
             guard hiddenUnlocked != oldValue else { return }
             rebuildVisible()
+            yearBuckets = TimelineIndex.yearBuckets(items: visibleItems)
             fullTimeline = TimelineIndex.compute(items: scopedItems())
         }
     }
@@ -115,6 +131,12 @@ final class LibraryViewModel: ObservableObject {
     var currentItem: MediaItem? {
         guard let i = viewerIndex, visibleItems.indices.contains(i) else { return nil }
         return visibleItems[i]
+    }
+
+    /// Resolves a bucket's `firstItemPath` back to its `MediaItem` for card
+    /// thumbnails in Months/Years mode.
+    func item(forPath path: String) -> MediaItem? {
+        visibleItems.first { $0.path == path }
     }
 
     func load() {
@@ -182,6 +204,7 @@ final class LibraryViewModel: ObservableObject {
         scopeCounts = Self.computeScopeCounts(items: new, livePairs: livePairs)
         rebuildVisible()
         timeline = TimelineIndex.compute(items: visibleItems)
+        yearBuckets = TimelineIndex.yearBuckets(items: visibleItems)
         fullTimeline = TimelineIndex.compute(items: scopedItems())
         let visiblePaths = Set(visibleItems.map(\.path))
         selectedPaths = selectedPaths.filter(visiblePaths.contains)
