@@ -289,13 +289,14 @@ struct MicroGridView: View {
     }
 
     private var monthsList: some View {
-        ScrollViewReader { proxy in
+        let columns = [GridItem(.adaptive(minimum: 320, maximum: 420), spacing: 12)]
+        return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(vm.timeline.filter { $0.monthStart != nil }, id: \.firstItemPath) { bucket in
                         TimeCard(
                             title: bucket.label, count: bucket.count,
-                            item: vm.item(forPath: bucket.firstItemPath), vm: vm, height: 200
+                            items: vm.items(forMonthBucket: bucket), vm: vm, height: 220
                         ) {
                             vm.pendingScrollPath = bucket.firstItemPath
                             vm.timeMode = .all
@@ -311,13 +312,13 @@ struct MicroGridView: View {
     }
 
     private var yearsGrid: some View {
-        let columns = [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 12)]
+        let columns = [GridItem(.adaptive(minimum: 320, maximum: 420), spacing: 12)]
         return ScrollView {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(vm.yearBuckets, id: \.year) { bucket in
                     TimeCard(
                         title: bucket.label, count: bucket.count,
-                        item: vm.item(forPath: bucket.firstItemPath), vm: vm, height: 160
+                        items: vm.items(forYear: bucket.year), vm: vm, height: 220
                     ) {
                         vm.pendingScrollPath = bucket.firstItemPath
                         vm.timeMode = .months
@@ -331,47 +332,71 @@ struct MicroGridView: View {
 
 /// A key-photo card used by Months and Years mode: pure navigation, no
 /// selection/context-menu surface (spec: selection is All-mode only).
+/// Auto-cycles through up to 10 of the period's photos with a gentle
+/// crossfade, so a single cropped photo doesn't have to stand in for an
+/// entire month/year. Cards stagger their cycle phase (hashed from the
+/// card's identity) so they don't all flip in lockstep.
 private struct TimeCard: View {
     let title: String
     let count: Int
-    let item: MediaItem?
+    let items: [MediaItem]
     let vm: LibraryViewModel
     let height: CGFloat
     let action: () -> Void
-    @State private var image: NSImage?
+    @State private var startDate = Date()
+    @State private var imageCache: [String: NSImage] = [:]
+
+    private var cardKey: String { items.first?.path ?? title }
+    /// Stable per-card offset (0..<2.5s) into the shared 2.5s cycle.
+    private var phase: Double {
+        Double(abs(cardKey.hashValue) % 250) / 100
+    }
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            if let image {
-                Image(nsImage: image).resizable().scaledToFill()
-            } else {
-                Rectangle().fill(.quaternary)
+        TimelineView(.periodic(from: startDate, by: 2.5)) { context in
+            let idx = items.isEmpty ? 0
+                : Int((context.date.timeIntervalSince(startDate) + phase) / 2.5) % items.count
+            ZStack(alignment: .bottomLeading) {
+                if let current = items.indices.contains(idx) ? items[idx] : nil,
+                   let image = imageCache[current.path] {
+                    Image(nsImage: image)
+                        .resizable().scaledToFill()
+                        .id(current.path)
+                        .transition(.opacity)
+                } else {
+                    Rectangle().fill(.quaternary)
+                }
+                LinearGradient(colors: [.black.opacity(0.55), .clear],
+                               startPoint: .bottom, endPoint: .top)
+                    .frame(height: 60)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                HStack {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text("\(count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.black.opacity(0.4), in: Capsule())
+                }
+                .padding(10)
             }
-            LinearGradient(colors: [.black.opacity(0.55), .clear],
-                           startPoint: .bottom, endPoint: .top)
-                .frame(height: 60)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-            HStack {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Spacer()
-                Text("\(count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(.black.opacity(0.4), in: Capsule())
+            .animation(.easeInOut(duration: 0.6), value: idx)
+            .task(id: idx) {
+                guard items.indices.contains(idx) else { return }
+                let item = items[idx]
+                guard imageCache[item.path] == nil else { return }
+                if let loaded = await vm.thumbnail(for: item, size: 480) {
+                    imageCache[item.path] = loaded
+                }
             }
-            .padding(10)
         }
         .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .contentShape(Rectangle())
         .onTapGesture { action() }
-        .task(id: item?.path) {
-            guard let item else { image = nil; return }
-            image = await vm.thumbnail(for: item, size: 320)
-        }
     }
 }
 

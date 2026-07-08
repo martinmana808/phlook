@@ -14,6 +14,7 @@ struct ViewerView: View {
     @State private var zoom: CGFloat = 1
     @State private var baseZoom: CGFloat = 1
     @State private var hasSharpened = false
+    @State private var hoveringImage = false
 
     // MARK: Photos-style open/close zoom animation state.
     // `expandFrame` is the current rect (in this view's local space, which
@@ -248,6 +249,25 @@ struct ViewerView: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .gesture(magnifyGesture)
+        .onHover { isHovering in
+            hoveringImage = isHovering
+            updateCursor()
+        }
+        .onChange(of: zoom) { _, _ in
+            if hoveringImage { updateCursor() }
+        }
+    }
+
+    /// Open-hand while zoomed in and hovering the image, plain arrow otherwise.
+    /// `.set()` calls (rather than push/pop) so entering/leaving/zoom-changing
+    /// can each just re-assert the correct cursor without needing a balanced
+    /// stack of pushes.
+    private func updateCursor() {
+        if hoveringImage, zoom > 1 {
+            NSCursor.openHand.set()
+        } else {
+            NSCursor.arrow.set()
+        }
     }
 
     private var magnifyGesture: some Gesture {
@@ -330,14 +350,20 @@ struct ViewerView: View {
                 }
                 Spacer()
                 if let item = vm.currentItem, item.fileType != "video", livePlayer == nil {
-                    Button {
-                        zoom = 1
-                        baseZoom = 1
-                    } label: {
-                        Text("1×").foregroundStyle(.white).monospacedDigit()
+                    HStack(spacing: 8) {
+                        Button {
+                            zoom = 1
+                            baseZoom = 1
+                        } label: {
+                            Text("1×").foregroundStyle(.white).monospacedDigit()
+                        }
+                        Slider(value: zoomBinding, in: ViewerMath.minZoom...ViewerMath.maxZoom)
+                            .frame(width: 120)
                     }
-                    Slider(value: zoomBinding, in: ViewerMath.minZoom...ViewerMath.maxZoom)
-                        .frame(width: 120)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.white.opacity(0.12), in: Capsule())
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 0.5))
                 }
                 if let item = vm.currentItem, vm.isLive(item) {
                     Button {

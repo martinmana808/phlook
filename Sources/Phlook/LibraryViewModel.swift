@@ -139,6 +139,42 @@ final class LibraryViewModel: ObservableObject {
         visibleItems.first { $0.path == path }
     }
 
+    /// Up to `limit` items from `visibleItems` that fall in the same
+    /// calendar month as `bucket.monthStart` — used to auto-cycle a Months
+    /// card's photo instead of showing only its single key photo. Undated
+    /// buckets (`monthStart == nil`) yield no extra items.
+    func items(forMonthBucket bucket: TimelineBucket, limit: Int = 10) -> [MediaItem] {
+        guard let monthStart = bucket.monthStart else { return [] }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let key = calendar.dateComponents([.year, .month], from: monthStart)
+        var result: [MediaItem] = []
+        for item in visibleItems {
+            guard let date = item.dateTaken else { continue }
+            if calendar.dateComponents([.year, .month], from: date) == key {
+                result.append(item)
+                if result.count >= limit { break }
+            }
+        }
+        return result
+    }
+
+    /// Up to `limit` items from `visibleItems` taken in the given calendar
+    /// year — used to auto-cycle a Years card's photo.
+    func items(forYear year: Int, limit: Int = 10) -> [MediaItem] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        var result: [MediaItem] = []
+        for item in visibleItems {
+            guard let date = item.dateTaken else { continue }
+            if calendar.component(.year, from: date) == year {
+                result.append(item)
+                if result.count >= limit { break }
+            }
+        }
+        return result
+    }
+
     func load() {
         let epoch = refreshEpoch
         let service = self.service

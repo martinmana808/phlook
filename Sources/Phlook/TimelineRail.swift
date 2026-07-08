@@ -22,6 +22,23 @@ struct TimelineRail: View {
             let height = geo.size.height
             let width = geo.size.width
             ZStack(alignment: .trailing) {
+                // Always-present, near-invisible hit layer: without a real (non-empty)
+                // subview here the ZStack collapses to zero size when neither overlay
+                // below is showing, so .onContinuousHover / the drag gesture never fire
+                // and the capsule can never appear on the very first hover.
+                Rectangle()
+                    .fill(.white.opacity(0.001))
+                    .frame(width: width, height: height)
+
+                // Faint always-on hint so users know a scrubber exists at all,
+                // even before they hover directly over the strip.
+                if !hovering {
+                    Rectangle()
+                        .fill(.primary.opacity(0.15))
+                        .frame(width: 2, height: height)
+                        .position(x: width - 4, y: height / 2)
+                }
+
                 if hovering, let y = currentY {
                     Rectangle()
                         .fill(.primary.opacity(0.6))
@@ -64,7 +81,7 @@ struct TimelineRail: View {
                     }
             )
         }
-        .frame(width: 14)
+        .frame(width: 40)
     }
 
     private func yFor(bucket: TimelineBucket, height: CGFloat) -> CGFloat {
