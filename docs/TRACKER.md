@@ -12,13 +12,13 @@ States: ☐ queued · 🔨 in progress · ✅ shipped (merged to main) · 🧪 b
 | 5 | Hover-scrub video previews | ✅ | wave2 §5 | |
 | 6 | Left sidebar (sections + date range) | ✅ | sidebar-hidden spec | includes Screenshots/Selfies detection |
 | 7 | Hidden (Photos-style, auth-gated) | ✅ | sidebar-hidden spec | LocalAuthentication (Touch ID / password) to open Hidden |
-| 8 | Device browser (phone thumbnails, NEW vs imported) | ☐ | — | folds in per-item import selection (#9) |
+| 8 | Device browser (phone thumbnails, NEW vs imported) | 🔨 | — | folds in per-item import selection (#9) |
 | 9 | Import selection | ☐ | — | subset of #8 |
 | 10 | Live poster-frame picker | ☐ | — | first file-writing feature; own safety design |
 | 11 | Vision categories (local ML) | 🧪 | — | feeds sidebar sections |
 | 12 | Quick Look (space bar) | 🧪 | — | small |
 | 13 | Drag-out to Finder/FCP | 🧪 | — | small |
-| 14 | Dedup finder | ☐ | — | content-hash + review UI |
+| 14 | Dedup finder | 🧪 | — | content-hash + review UI |
 
 Build order (user-approved 2026-07-07): **#1–5 → #6+7 → rest later.**
 
