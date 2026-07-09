@@ -63,6 +63,9 @@ struct ContentView: View {
         )) {
             DuplicatesView(vm: vm, groups: vm.duplicateGroups ?? []) { vm.duplicateGroups = nil }
         }
+        .sheet(isPresented: $importer.showDeviceBrowser) {
+            DeviceBrowserSheet(importer: importer)
+        }
         .confirmationDialog(
             "Move \(vm.pendingTrash?.count ?? 0) item(s) to Trash?",
             isPresented: Binding(get: { vm.pendingTrash != nil },

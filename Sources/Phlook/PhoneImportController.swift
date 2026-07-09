@@ -1,9 +1,19 @@
 import Foundation
 import ImageCaptureCore
+import AppKit
 import PhlookCore
 
 @MainActor
 final class PhoneImportController: NSObject, ObservableObject {
+    /// A lightweight, UI-facing projection of a camera-roll item for the
+    /// Device Browser grid — no ICCameraFile reference (keeps the UI layer
+    /// off ImageCaptureCore types).
+    struct DeviceItem: Identifiable, Equatable {
+        let id: String   // CameraItemDescriptor.identifier
+        let name: String
+        let isNew: Bool
+    }
+
     enum ImportState: Equatable {
         case idle
         case connecting(device: String)
@@ -15,6 +25,12 @@ final class PhoneImportController: NSObject, ObservableObject {
     }
 
     @Published private(set) var state: ImportState = .idle
+    /// Every media file currently on the device — new and already-imported —
+    /// projected for the Device Browser grid, new items first.
+    @Published private(set) var deviceItems: [DeviceItem] = []
+    /// Set by the import bar's "Browse…" button; ContentView presents
+    /// DeviceBrowserSheet bound to this.
+    @Published var showDeviceBrowser = false
     var onLibraryChanged: () -> Void = {}
 
     private let service: IndexingService
@@ -22,6 +38,13 @@ final class PhoneImportController: NSObject, ObservableObject {
     private let browser = ICDeviceBrowser()
     private var camera: ICCameraDevice?
     private var pendingFiles: [ICCameraFile] = []
+    /// Every media file on the device (superset of pendingFiles), computed
+    /// alongside pending in recomputePending() — backs deviceItems/thumbnails.
+    private var allMediaFiles: [ICCameraFile] = []
+    /// Media files already recorded as imported (allMediaFiles - pendingFiles).
+    private var importedFiles: [ICCameraFile] = []
+    /// Thumbnail cache keyed by CameraItemDescriptor.identifier.
+    private var thumbnailCache: [String: NSImage] = [:]
     private var downloadQueue: [ICCameraFile] = []
     private var inFlightFile: ICCameraFile?
     private var doneCount = 0
@@ -69,15 +92,41 @@ final class PhoneImportController: NSObject, ObservableObject {
     }
 
     func importAllNew() {
-        guard case .ready(let device, let pending, _, _) = state, pending > 0, camera != nil else { return }
+        importSelected(Set(pendingFiles.map { self.descriptor(for: $0).identifier }))
+    }
+
+    /// Downloads exactly the pending files whose identifier is in
+    /// `identifiers` — the same serial download → record → ingest pipeline
+    /// as before, just seeded from an arbitrary subset instead of "all".
+    func importSelected(_ identifiers: Set<String>) {
+        guard case .ready(let device, _, _, _) = state, camera != nil else { return }
+        let subset = pendingFiles.filter { identifiers.contains(self.descriptor(for: $0).identifier) }
+        guard !subset.isEmpty else { return }
         runGeneration += 1
         try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-        downloadQueue = pendingFiles
+        downloadQueue = subset
         doneCount = 0
         failedNames = []
         lastActivity = Date()
         state = .importing(device: device, done: 0, total: downloadQueue.count)
         downloadNext()
+    }
+
+    /// Thumbnail for a device item, cached by identifier. Uses ICCameraFile's
+    /// block-based JPEG thumbnail request (requestThumbnailDataWithOptions:
+    /// completion:) wrapped as async — no delegate plumbing needed.
+    func thumbnail(for identifier: String) async -> NSImage? {
+        if let cached = thumbnailCache[identifier] { return cached }
+        guard let file = allMediaFiles.first(where: { self.descriptor(for: $0).identifier == identifier })
+        else { return nil }
+        let data: Data? = await withCheckedContinuation { continuation in
+            file.requestThumbnailData(options: nil) { data, _ in
+                continuation.resume(returning: data)
+            }
+        }
+        guard let data, let image = NSImage(data: data) else { return nil }
+        thumbnailCache[identifier] = image
+        return image
     }
 
     func dismissResult() {
@@ -170,6 +219,9 @@ final class PhoneImportController: NSObject, ObservableObject {
             // "can't read" beats a false "up to date".
             log("recompute: empty catalog — unreadable")
             pendingFiles = []
+            allMediaFiles = []
+            importedFiles = []
+            deviceItems = []
             state = .unreadable(device: camera.name ?? "iPhone")
             return
         }
@@ -178,6 +230,15 @@ final class PhoneImportController: NSObject, ObservableObject {
         let pendingDescriptors = PhoneImportPlanner.pending(onDevice: descriptors, alreadyImported: recorded)
         let pendingIds = Set(pendingDescriptors.map(\.identifier))
         pendingFiles = files.filter { pendingIds.contains(self.descriptor(for: $0).identifier) }
+        // Every media file on device (mirrors pendingFiles' media-only filter,
+        // just without the "not yet imported" restriction).
+        allMediaFiles = files.filter { self.descriptor(for: $0).isMediaFile }
+        let pendingSet = Set(pendingFiles.map(ObjectIdentifier.init))
+        importedFiles = allMediaFiles.filter { !pendingSet.contains(ObjectIdentifier($0)) }
+        deviceItems = pendingFiles.map { DeviceItem(id: self.descriptor(for: $0).identifier,
+                                                    name: $0.name ?? "unknown", isNew: true) }
+            + importedFiles.map { DeviceItem(id: self.descriptor(for: $0).identifier,
+                                             name: $0.name ?? "unknown", isNew: false) }
         let onDevice = files.count
         let pending = pendingFiles.count
         log("recompute: onDevice=\(onDevice) recorded=\(recorded.count) pending=\(pending)")
@@ -283,6 +344,10 @@ final class PhoneImportController: NSObject, ObservableObject {
         }
         camera = nil
         pendingFiles = []
+        allMediaFiles = []
+        importedFiles = []
+        deviceItems = []
+        thumbnailCache = [:]
         catalogReceived = false
         state = .idle
     }

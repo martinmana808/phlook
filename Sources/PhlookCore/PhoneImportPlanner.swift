@@ -34,4 +34,12 @@ public enum PhoneImportPlanner {
                                alreadyImported: Set<String>) -> [CameraItemDescriptor] {
         items.filter { $0.isMediaFile && !alreadyImported.contains($0.identifier) }
     }
+
+    /// The pending items whose identifier is in `selectedIDs`, preserving
+    /// `pending`'s order. Used by the device browser's "Import N selected"
+    /// to derive the download subset from the user's picks.
+    public static func subset(pending items: [CameraItemDescriptor],
+                              selectedIDs: Set<String>) -> [CameraItemDescriptor] {
+        items.filter { selectedIDs.contains($0.identifier) }
+    }
 }

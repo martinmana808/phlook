@@ -17,19 +17,31 @@ struct ImportBar: View {
         case .ready(let device, let pending, let onDevice, let imported):
             if pending > 0 {
                 VStack(alignment: .leading, spacing: 2) {
-                    Button {
-                        importer.importAllNew()
-                    } label: {
-                        Label("Import \(pending) new from \(device)", systemImage: "iphone.and.arrow.forward")
+                    HStack(spacing: 6) {
+                        Button {
+                            importer.importAllNew()
+                        } label: {
+                            Label("Import \(pending) new from \(device)", systemImage: "iphone.and.arrow.forward")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        Button("Browse…") {
+                            importer.showDeviceBrowser = true
+                        }
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
                     Text("\(onDevice) on device · \(imported) already imported")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             } else {
-                Label("Up to date — \(onDevice) on device, all imported", systemImage: "checkmark.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Label("Up to date — \(onDevice) on device, all imported", systemImage: "checkmark.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Browse…") {
+                        importer.showDeviceBrowser = true
+                    }
+                    .controlSize(.small)
+                }
             }
         case .unreadable(let device):
             Label("Can't read \(device)'s library — unlock the phone, then unplug/replug.",

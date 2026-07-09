@@ -32,4 +32,22 @@ struct PhoneImportPlannerTests {
         let recorded = Set(items.map(\.identifier))
         #expect(PhoneImportPlanner.pending(onDevice: items, alreadyImported: recorded).isEmpty)
     }
+
+    @Test func subsetFiltersToSelectedIdentifiers() {
+        let items = [item("A.JPG"), item("B.JPG"), item("C.JPG")]
+        let selected: Set<String> = [item("A.JPG").identifier, item("C.JPG").identifier]
+        let subset = PhoneImportPlanner.subset(pending: items, selectedIDs: selected)
+        #expect(subset.map(\.name) == ["A.JPG", "C.JPG"])
+    }
+
+    @Test func subsetWithEmptySelectionIsEmpty() {
+        let items = [item("A.JPG"), item("B.JPG")]
+        #expect(PhoneImportPlanner.subset(pending: items, selectedIDs: []).isEmpty)
+    }
+
+    @Test func subsetIgnoresUnknownIdentifiers() {
+        let items = [item("A.JPG")]
+        let subset = PhoneImportPlanner.subset(pending: items, selectedIDs: ["nonexistent|unknown|0"])
+        #expect(subset.isEmpty)
+    }
 }
