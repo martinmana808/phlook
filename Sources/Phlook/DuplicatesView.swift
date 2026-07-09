@@ -8,6 +8,7 @@ private struct DuplicateGroupRow: View {
     let keeperLabel: String
     @ObservedObject var vm: LibraryViewModel
     @Binding var selectedPaths: Set<String>
+    let protectedKeepers: Set<String>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -16,6 +17,9 @@ private struct DuplicateGroupRow: View {
                     ForEach(Array(group.enumerated()), id: \.element.path) { index, item in
                         DuplicateThumb(item: item, vm: vm, isKeeper: index == 0, keeperLabel: keeperLabel,
                                        isSelected: selectedPaths.contains(item.path)) {
+                            // Belt-and-suspenders: a path that is a keeper in
+                            // ANY section's group can never be toggled in.
+                            guard !protectedKeepers.contains(item.path) else { return }
                             if selectedPaths.contains(item.path) {
                                 selectedPaths.remove(item.path)
                             } else {
@@ -90,6 +94,12 @@ struct DuplicatesView: View {
 
     private var isEmpty: Bool { groups.isEmpty && editedGroups.isEmpty }
 
+    /// Union of every group's keeper (first item) across BOTH sections.
+    /// A path that is a keeper anywhere must be protected everywhere.
+    private var protectedKeepers: Set<String> {
+        Set((groups + editedGroups).compactMap { $0.first?.path })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -115,14 +125,16 @@ struct DuplicatesView: View {
                             Text("Identical files").font(.headline)
                             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                                 DuplicateGroupRow(group: group, keeperLabel: "Keep",
-                                                   vm: vm, selectedPaths: $selectedPaths)
+                                                   vm: vm, selectedPaths: $selectedPaths,
+                                                   protectedKeepers: protectedKeepers)
                             }
                         }
                         if !editedGroups.isEmpty {
                             Text("Edited versions (original + edited)").font(.headline)
                             ForEach(Array(editedGroups.enumerated()), id: \.offset) { _, group in
                                 DuplicateGroupRow(group: group, keeperLabel: "Keep · Edited",
-                                                   vm: vm, selectedPaths: $selectedPaths)
+                                                   vm: vm, selectedPaths: $selectedPaths,
+                                                   protectedKeepers: protectedKeepers)
                             }
                         }
                     }
@@ -132,7 +144,7 @@ struct DuplicatesView: View {
                 HStack {
                     Spacer()
                     Button(role: .destructive) {
-                        let paths = Array(selectedPaths)
+                        let paths = DuplicateSelection.trashable(selected: selectedPaths, groups: groups + editedGroups)
                         vm.trashPaths(paths)
                         selectedPaths.removeAll()
                         onDone()
@@ -146,10 +158,14 @@ struct DuplicatesView: View {
         }
         .frame(minWidth: 560, minHeight: 480)
         .onAppear {
-            // Pre-check every non-keeper across both sections' groups.
+            // Pre-check every non-keeper across both sections' groups, but
+            // never a path that is a keeper in ANY group (cross-section guard).
+            let protected = protectedKeepers
             var initial: Set<String> = []
             for group in groups + editedGroups where group.count > 1 {
-                for item in group.dropFirst() { initial.insert(item.path) }
+                for item in group.dropFirst() where !protected.contains(item.path) {
+                    initial.insert(item.path)
+                }
             }
             selectedPaths = initial
         }
