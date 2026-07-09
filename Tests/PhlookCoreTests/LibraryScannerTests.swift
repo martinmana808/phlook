@@ -3,6 +3,30 @@ import Foundation
 @testable import PhlookCore
 
 struct LibraryScannerTests {
+    @Test func underscorePrefixedFoldersAreNotIndexed() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        // A real library file at the root…
+        try TestFixtures.writeJPEG(at: root.appendingPathComponent("keep.jpg"), width: 16, height: 16)
+        // …and an excluded archive folder with media inside (+ a nested subdir).
+        let archive = root.appendingPathComponent("_Todas las fotos de mi vida")
+        let nested = archive.appendingPathComponent("2017")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try TestFixtures.writeJPEG(at: archive.appendingPathComponent("old.jpg"), width: 16, height: 16)
+        try TestFixtures.writeJPEG(at: nested.appendingPathComponent("older.jpg"), width: 16, height: 16)
+        // A normal (non-underscore) subfolder IS still indexed.
+        let normal = root.appendingPathComponent("Trip")
+        try FileManager.default.createDirectory(at: normal, withIntermediateDirectories: true)
+        try TestFixtures.writeJPEG(at: normal.appendingPathComponent("trip.jpg"), width: 16, height: 16)
+
+        let items = try LibraryScanner(root: root).scan()
+        let names = Set(items.map { ($0.path as NSString).lastPathComponent })
+        #expect(names.contains("keep.jpg"))
+        #expect(names.contains("trip.jpg"))
+        #expect(!names.contains("old.jpg"))
+        #expect(!names.contains("older.jpg"))
+    }
+
     func makeRoot() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

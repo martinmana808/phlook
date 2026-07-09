@@ -17,7 +17,7 @@ public struct LibraryScanner {
     public func scan(known: [String: FileStamp] = [:]) throws -> (changed: [MediaItem], allPaths: Set<String>) {
         var changed: [MediaItem] = []
         var allPaths: Set<String> = []
-        let keys: [URLResourceKey] = [.isRegularFileKey, .creationDateKey,
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .creationDateKey,
                                       .fileSizeKey, .contentModificationDateKey]
         let canonicalRoot = root.resolvingSymlinksInPath()
         guard let e = FileManager.default.enumerator(
@@ -38,13 +38,21 @@ public struct LibraryScanner {
             return URL(fileURLWithPath: String(cString: real)).pathComponents.count
         }()
         for case let url as URL in e {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+            // Excluded folders: any subdirectory whose name starts with "_" is
+            // kept inside the library folder but NOT indexed (e.g. a dropped-in
+            // archive). skipDescendants() prevents the enumerator from
+            // descending into it at all — no 160k-file archive floods the index.
+            if values.isDirectory == true {
+                if url.lastPathComponent.hasPrefix("_") { e.skipDescendants() }
+                continue
+            }
             let ext = url.pathExtension.lowercased()
             let isImage = Self.imageExts.contains(ext)
             let isVideo = Self.videoExts.contains(ext)
             guard isImage || isVideo else { continue }
             if url.lastPathComponent.hasPrefix("._") { continue }
-            guard let values = try? url.resourceValues(forKeys: Set(keys)),
-                  values.isRegularFile == true else { continue }
+            guard values.isRegularFile == true else { continue }
             let relativeComponents = url.pathComponents.suffix(from: realDepth)
             let path = relativeComponents.reduce(root) { $0.appendingPathComponent($1) }.path
             // Self-verifying invariant: the enumerator-form rebasing above
