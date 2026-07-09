@@ -100,7 +100,10 @@ final class PhoneImportController: NSObject, ObservableObject {
     /// as before, just seeded from an arbitrary subset instead of "all".
     func importSelected(_ identifiers: Set<String>) {
         guard case .ready(let device, _, _, _) = state, camera != nil else { return }
-        let subset = pendingFiles.filter { identifiers.contains(self.descriptor(for: $0).identifier) }
+        let pendingDescriptors = pendingFiles.map { self.descriptor(for: $0) }
+        let selectedDescriptors = PhoneImportPlanner.subset(pending: pendingDescriptors, selectedIDs: identifiers)
+        let selectedIdentifiers = Set(selectedDescriptors.map(\.identifier))
+        let subset = pendingFiles.filter { selectedIdentifiers.contains(self.descriptor(for: $0).identifier) }
         guard !subset.isEmpty else { return }
         runGeneration += 1
         try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
