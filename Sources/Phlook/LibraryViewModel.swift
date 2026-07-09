@@ -401,7 +401,11 @@ final class LibraryViewModel: ObservableObject {
     /// dismissed, an empty array means the scan ran and found nothing.
     func findDuplicates() async {
         findingDuplicates = true
-        duplicateGroups = await service.duplicateGroups()
+        let raw = await service.duplicateGroups()
+        let hiddenVideoPaths = livePairs.hiddenVideoPaths
+        duplicateGroups = raw
+            .map { group in group.filter { !hiddenVideoPaths.contains($0.path) } }
+            .filter { $0.count >= 2 }
         findingDuplicates = false
     }
 

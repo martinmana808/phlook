@@ -83,15 +83,16 @@ public final class IndexingService {
     /// with a full-file SHA256 computed off-main — each candidate file is
     /// hashed at most once via `cache`.
     public func duplicateGroups() async -> [[MediaItem]] {
-        let candidatePaths = (try? index.duplicateCandidatePaths()) ?? []
-        var items: [MediaItem] = []
-        for path in candidatePaths {
-            if let item = try? index.item(forPath: path) {
-                items.append(item)
-            }
-        }
-        guard !items.isEmpty else { return [] }
+        let index = self.index
         return await Task.detached {
+            let candidatePaths = (try? index.duplicateCandidatePaths()) ?? []
+            var items: [MediaItem] = []
+            for path in candidatePaths {
+                if let item = try? index.item(forPath: path) {
+                    items.append(item)
+                }
+            }
+            guard !items.isEmpty else { return [] }
             var cache: [String: String?] = [:]
             func fullHash(_ path: String) -> String? {
                 if let cached = cache[path] { return cached }
