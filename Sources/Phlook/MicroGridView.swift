@@ -209,6 +209,15 @@ struct MicroGridView: View {
             .labelsHidden()
             .frame(width: 220)
             Spacer()
+            if vm.findingDuplicates {
+                ProgressView().controlSize(.small)
+            } else {
+                Button {
+                    Task { await vm.findDuplicates() }
+                } label: {
+                    Label("Find Duplicates", systemImage: "doc.on.doc")
+                }
+            }
             ImportBar(importer: importer)
         }
         .padding(.vertical, 8)

@@ -33,4 +33,27 @@ struct MediaIndexTests {
         let fetched = try index.item(forPath: "/x.heic")
         #expect(fetched?.width == 999)
     }
+
+    @Test func duplicateCandidatePathsFindsSharedSizeAndHash() throws {
+        let index = try makeTempIndex()
+        let a = MediaItem(path: "/a.jpg", hash: "h1", dateTaken: nil, fileType: "image",
+                           width: nil, height: nil, lastScanned: Date(), fileSize: 100)
+        let b = MediaItem(path: "/b.jpg", hash: "h1", dateTaken: nil, fileType: "image",
+                           width: nil, height: nil, lastScanned: Date(), fileSize: 100)
+        let c = MediaItem(path: "/c.jpg", hash: "h2", dateTaken: nil, fileType: "image",
+                           width: nil, height: nil, lastScanned: Date(), fileSize: 200)
+        try index.upsert(a); try index.upsert(b); try index.upsert(c)
+        let candidates = Set(try index.duplicateCandidatePaths())
+        #expect(candidates == ["/a.jpg", "/b.jpg"])
+    }
+
+    @Test func duplicateCandidatePathsExcludesNilHashOrSize() throws {
+        let index = try makeTempIndex()
+        let a = MediaItem(path: "/a.jpg", hash: nil, dateTaken: nil, fileType: "image",
+                           width: nil, height: nil, lastScanned: Date(), fileSize: 100)
+        let b = MediaItem(path: "/b.jpg", hash: "h1", dateTaken: nil, fileType: "image",
+                           width: nil, height: nil, lastScanned: Date(), fileSize: nil)
+        try index.upsert(a); try index.upsert(b)
+        #expect(try index.duplicateCandidatePaths().isEmpty)
+    }
 }

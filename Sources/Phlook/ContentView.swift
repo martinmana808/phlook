@@ -57,6 +57,12 @@ struct ContentView: View {
         )) {
             ImportResultSheet(state: importer.state) { importer.dismissResult() }
         }
+        .sheet(isPresented: Binding(
+            get: { vm.duplicateGroups != nil },
+            set: { if !$0 { vm.duplicateGroups = nil } }
+        )) {
+            DuplicatesView(vm: vm, groups: vm.duplicateGroups ?? []) { vm.duplicateGroups = nil }
+        }
         .confirmationDialog(
             "Move \(vm.pendingTrash?.count ?? 0) item(s) to Trash?",
             isPresented: Binding(get: { vm.pendingTrash != nil },

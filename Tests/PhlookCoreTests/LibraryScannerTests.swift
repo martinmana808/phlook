@@ -48,4 +48,22 @@ struct LibraryScannerTests {
         #expect(video.fileType == "video")
         #expect(video.hash != nil)
     }
+
+    @Test func fullHashIsDeterministicAndSizeSensitive() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let a = dir.appendingPathComponent("a.bin")
+        let b = dir.appendingPathComponent("b.bin")
+        let c = dir.appendingPathComponent("c.bin")
+        let payload = Data(repeating: 0x42, count: 5 * 1_048_576) // > one read-chunk
+        try payload.write(to: a)
+        try payload.write(to: b)
+        try Data(repeating: 0x43, count: 5 * 1_048_576).write(to: c)
+        let hashA = LibraryScanner.fullHash(a)
+        let hashB = LibraryScanner.fullHash(b)
+        let hashC = LibraryScanner.fullHash(c)
+        #expect(hashA != nil)
+        #expect(hashA == hashB)
+        #expect(hashA != hashC)
+    }
 }

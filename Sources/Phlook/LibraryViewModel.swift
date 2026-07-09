@@ -108,6 +108,8 @@ final class LibraryViewModel: ObservableObject {
     @Published var selectedPaths: Set<String> = []
     @Published var pendingTrash: [MediaItem]?     // confirmation dialog payload
     @Published var trashFailures: [String]?       // post-delete failure alert
+    @Published var duplicateGroups: [[MediaItem]]?   // Duplicates sheet payload; nil = dismissed
+    @Published var findingDuplicates = false
     @Published var density: GridDensity = GridDensity(
         rawValue: UserDefaults.standard.integer(forKey: "gridDensity")) ?? .micro {
         didSet { UserDefaults.standard.set(density.rawValue, forKey: "gridDensity") }
@@ -388,6 +390,42 @@ final class LibraryViewModel: ObservableObject {
                 self.refreshEpoch += 1
                 self.refreshItems(fresh)
                 self.clearSelection()
+                if !outcome.failures.isEmpty { self.trashFailures = outcome.failures }
+            }
+        }
+    }
+
+    /// Runs exact-content duplicate detection over the whole library
+    /// (candidate pre-filter + full-hash confirmation happen in the service,
+    /// off-main). `duplicateGroups` drives the Duplicates sheet; nil means
+    /// dismissed, an empty array means the scan ran and found nothing.
+    func findDuplicates() async {
+        findingDuplicates = true
+        duplicateGroups = await service.duplicateGroups()
+        findingDuplicates = false
+    }
+
+    /// Trash arbitrary paths (e.g. duplicate-review selections), expanding
+    /// live pairs so a still's paired motion file moves with it. Mirrors
+    /// `confirmTrash`'s shape/epoch-refresh but takes raw paths instead of a
+    /// `pendingTrash` confirmation payload.
+    func trashPaths(_ paths: [String]) {
+        guard !paths.isEmpty else { return }
+        var expanded: [String] = []
+        for path in paths {
+            expanded.append(path)
+            if let motion = livePairs.videoPath(forImagePath: path) {
+                expanded.append(motion)
+            }
+        }
+        let service = self.service
+        Task.detached {
+            let index = service.mediaIndex
+            let outcome = LibraryTrasher.trash(paths: expanded, index: index)
+            let fresh = (try? service.items()) ?? []
+            await MainActor.run {
+                self.refreshEpoch += 1
+                self.refreshItems(fresh)
                 if !outcome.failures.isEmpty { self.trashFailures = outcome.failures }
             }
         }

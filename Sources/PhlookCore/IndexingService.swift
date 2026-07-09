@@ -78,6 +78,31 @@ public final class IndexingService {
         return processed
     }
 
+    /// Finds exact-content duplicate groups: pulls candidates sharing
+    /// (file_size, quickHash) from the index (cheap SQL), then confirms them
+    /// with a full-file SHA256 computed off-main — each candidate file is
+    /// hashed at most once via `cache`.
+    public func duplicateGroups() async -> [[MediaItem]] {
+        let candidatePaths = (try? index.duplicateCandidatePaths()) ?? []
+        var items: [MediaItem] = []
+        for path in candidatePaths {
+            if let item = try? index.item(forPath: path) {
+                items.append(item)
+            }
+        }
+        guard !items.isEmpty else { return [] }
+        return await Task.detached {
+            var cache: [String: String?] = [:]
+            func fullHash(_ path: String) -> String? {
+                if let cached = cache[path] { return cached }
+                let value = LibraryScanner.fullHash(URL(fileURLWithPath: path))
+                cache[path] = value
+                return value
+            }
+            return DuplicateFinder.groups(items: items, fullHash: fullHash)
+        }.value
+    }
+
     public func recordImport(device: String, identifier: String) throws {
         try index.recordImport(device: device, identifier: identifier)
     }

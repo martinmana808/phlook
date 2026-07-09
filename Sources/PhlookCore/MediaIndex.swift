@@ -298,4 +298,22 @@ public final class MediaIndex {
                 arguments: [device]))
         }
     }
+
+    /// Paths of rows whose (file_size, hash) tuple is shared by 2+ rows — the
+    /// cheap SQL pre-filter for duplicate detection. Confirming these as real
+    /// duplicates (vs. a quickHash collision) requires a full-file hash,
+    /// which is done off-DB by the caller.
+    public func duplicateCandidatePaths() throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT path FROM files
+                WHERE (file_size, hash) IN (
+                    SELECT file_size, hash FROM files
+                    WHERE hash IS NOT NULL AND file_size IS NOT NULL
+                    GROUP BY file_size, hash
+                    HAVING count(*) > 1
+                )
+            """)
+        }
+    }
 }
