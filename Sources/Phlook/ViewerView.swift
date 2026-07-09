@@ -108,7 +108,11 @@ struct ViewerView: View {
             player?.pause()
             stopLivePlayback()
         }
-        .task(id: vm.currentItem?.path) { await loadCurrent() }
+        // Key on posterTime too so returning from the poster picker to a
+        // still-open viewer reloads the newly-chosen frame.
+        .task(id: "\(vm.currentItem?.path ?? "")#\(vm.currentItem?.posterTime ?? -1)") {
+            await loadCurrent()
+        }
     }
 
     /// Grows the media layer from the tapped grid cell's frame to the fitted

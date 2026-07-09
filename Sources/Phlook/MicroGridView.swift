@@ -137,7 +137,11 @@ struct ThumbCell: View {
         // ThumbnailCache already requests QLThumbnailGenerator at scale: 2.0
         // (retina), so passing `side * 2` here double-applies retina scaling
         // (4x the needed pixels). Request the logical side; QL supplies @2x.
-        .task(id: side) { image = await vm.thumbnail(for: item, size: Int(side)) }
+        // Key on posterTime too: choosing a new Live Photo poster must re-fetch
+        // this cell's thumbnail without waiting for a remount.
+        .task(id: "\(side)#\(item.posterTime ?? -1)") {
+            image = await vm.thumbnail(for: item, size: Int(side))
+        }
     }
 
     private var trashTitle: String {
