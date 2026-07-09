@@ -110,6 +110,7 @@ final class LibraryViewModel: ObservableObject {
     @Published var pendingTrash: [MediaItem]?     // confirmation dialog payload
     @Published var trashFailures: [String]?       // post-delete failure alert
     @Published var duplicateGroups: [[MediaItem]]?   // Duplicates sheet payload; nil = dismissed
+    @Published var editedPairGroups: [[MediaItem]]?  // Original+edited (IMG_/IMG_E) pairs; nil = not yet run
     @Published var findingDuplicates = false
     @Published var density: GridDensity = GridDensity(
         rawValue: UserDefaults.standard.integer(forKey: "gridDensity")) ?? .micro {
@@ -425,6 +426,9 @@ final class LibraryViewModel: ObservableObject {
         let raw = await service.duplicateGroups()
         let hiddenVideoPaths = livePairs.hiddenVideoPaths
         duplicateGroups = raw
+            .map { group in group.filter { !hiddenVideoPaths.contains($0.path) } }
+            .filter { $0.count >= 2 }
+        editedPairGroups = EditedPairFinder.pairs(items: items)
             .map { group in group.filter { !hiddenVideoPaths.contains($0.path) } }
             .filter { $0.count >= 2 }
         findingDuplicates = false

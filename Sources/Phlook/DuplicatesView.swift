@@ -5,6 +5,7 @@ import PhlookCore
 /// pre-checked "trash this" candidates.
 private struct DuplicateGroupRow: View {
     let group: [MediaItem]
+    let keeperLabel: String
     @ObservedObject var vm: LibraryViewModel
     @Binding var selectedPaths: Set<String>
 
@@ -13,7 +14,7 @@ private struct DuplicateGroupRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(Array(group.enumerated()), id: \.element.path) { index, item in
-                        DuplicateThumb(item: item, vm: vm, isKeeper: index == 0,
+                        DuplicateThumb(item: item, vm: vm, isKeeper: index == 0, keeperLabel: keeperLabel,
                                        isSelected: selectedPaths.contains(item.path)) {
                             if selectedPaths.contains(item.path) {
                                 selectedPaths.remove(item.path)
@@ -33,6 +34,7 @@ private struct DuplicateThumb: View {
     let item: MediaItem
     @ObservedObject var vm: LibraryViewModel
     let isKeeper: Bool
+    let keeperLabel: String
     let isSelected: Bool
     let toggle: () -> Void
     @State private var image: NSImage?
@@ -63,7 +65,7 @@ private struct DuplicateThumb: View {
             .contentShape(Rectangle())
             .onTapGesture { if !isKeeper { toggle() } }
             if isKeeper {
-                Text("Keep").font(.caption2.bold())
+                Text(keeperLabel).font(.caption2.bold())
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(.green.opacity(0.2), in: Capsule())
             } else {
@@ -80,12 +82,13 @@ private struct DuplicateThumb: View {
 
 struct DuplicatesView: View {
     @ObservedObject var vm: LibraryViewModel
-    let groups: [[MediaItem]]
+    let groups: [[MediaItem]]           // exact-content ("Identical files") groups
+    let editedGroups: [[MediaItem]]     // original+edited (IMG_/IMG_E) groups
     let onDone: () -> Void
 
     @State private var selectedPaths: Set<String> = []
 
-    private var flatGroups: [[MediaItem]] { groups }
+    private var isEmpty: Bool { groups.isEmpty && editedGroups.isEmpty }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -96,7 +99,7 @@ struct DuplicatesView: View {
             }
             .padding()
             Divider()
-            if groups.isEmpty {
+            if isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "checkmark.seal")
                         .font(.system(size: 32))
@@ -108,8 +111,19 @@ struct DuplicatesView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        ForEach(Array(flatGroups.enumerated()), id: \.offset) { _, group in
-                            DuplicateGroupRow(group: group, vm: vm, selectedPaths: $selectedPaths)
+                        if !groups.isEmpty {
+                            Text("Identical files").font(.headline)
+                            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                                DuplicateGroupRow(group: group, keeperLabel: "Keep",
+                                                   vm: vm, selectedPaths: $selectedPaths)
+                            }
+                        }
+                        if !editedGroups.isEmpty {
+                            Text("Edited versions (original + edited)").font(.headline)
+                            ForEach(Array(editedGroups.enumerated()), id: \.offset) { _, group in
+                                DuplicateGroupRow(group: group, keeperLabel: "Keep · Edited",
+                                                   vm: vm, selectedPaths: $selectedPaths)
+                            }
                         }
                     }
                     .padding()
@@ -132,9 +146,9 @@ struct DuplicatesView: View {
         }
         .frame(minWidth: 560, minHeight: 480)
         .onAppear {
-            // Pre-check every non-keeper across all groups.
+            // Pre-check every non-keeper across both sections' groups.
             var initial: Set<String> = []
-            for group in groups where group.count > 1 {
+            for group in groups + editedGroups where group.count > 1 {
                 for item in group.dropFirst() { initial.insert(item.path) }
             }
             selectedPaths = initial

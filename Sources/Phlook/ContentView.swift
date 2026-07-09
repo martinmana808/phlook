@@ -66,9 +66,12 @@ struct ContentView: View {
         }
         .sheet(isPresented: Binding(
             get: { vm.duplicateGroups != nil },
-            set: { if !$0 { vm.duplicateGroups = nil } }
+            set: { if !$0 { vm.duplicateGroups = nil; vm.editedPairGroups = nil } }
         )) {
-            DuplicatesView(vm: vm, groups: vm.duplicateGroups ?? []) { vm.duplicateGroups = nil }
+            DuplicatesView(vm: vm, groups: vm.duplicateGroups ?? [], editedGroups: vm.editedPairGroups ?? []) {
+                vm.duplicateGroups = nil
+                vm.editedPairGroups = nil
+            }
         }
         .sheet(isPresented: $importer.showDeviceBrowser) {
             DeviceBrowserSheet(importer: importer)
