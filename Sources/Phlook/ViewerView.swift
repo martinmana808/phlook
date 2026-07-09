@@ -131,15 +131,15 @@ struct ViewerView: View {
         showChrome = false
         backdropOpacity = 0
         expandFrame = origin
-        withAnimation(.easeOut(duration: 0.28)) {
+        withAnimation(.easeOut(duration: 0.18)) {
             expandFrame = centeredFullRect(for: vm.currentItem)
             backdropOpacity = 1
         }
-        withAnimation(.easeOut(duration: 0.22).delay(0.12)) {
+        withAnimation(.easeOut(duration: 0.14).delay(0.07)) {
             showChrome = true
         }
         openCleanupTask = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(nanoseconds: 190_000_000)
             guard !Task.isCancelled else { return }
             expandFrame = nil
             expandImage = nil
@@ -169,13 +169,13 @@ struct ViewerView: View {
             expandImage = vm.currentItem.flatMap { vm.cachedThumbnail(for: $0, size: vm.density.rawValue) } ?? image
         }
         expandFrame = centeredFullRect(for: vm.currentItem)
-        withAnimation(.easeIn(duration: 0.15)) { showChrome = false }
-        withAnimation(.easeIn(duration: 0.28)) {
+        withAnimation(.easeIn(duration: 0.1)) { showChrome = false }
+        withAnimation(.easeIn(duration: 0.18)) {
             expandFrame = origin
             backdropOpacity = 0
         }
         Task {
-            try? await Task.sleep(nanoseconds: 290_000_000)
+            try? await Task.sleep(nanoseconds: 190_000_000)
             vm.closeViewer()
         }
     }

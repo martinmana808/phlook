@@ -369,34 +369,45 @@ private struct TimeCard: View {
         TimelineView(.periodic(from: startDate, by: 2.5)) { context in
             let idx = items.isEmpty ? 0
                 : Int((context.date.timeIntervalSince(startDate) + phase) / 2.5) % items.count
-            ZStack(alignment: .bottomLeading) {
+            // Image constrained to the card frame FIRST (scaledToFill would
+            // otherwise balloon the ZStack and push a bottom-aligned label
+            // below the clipped region — that was the "label invisible" bug).
+            ZStack {
+                Rectangle().fill(.quaternary)
                 if let current = items.indices.contains(idx) ? items[idx] : nil,
                    let image = imageCache[current.path] {
                     Image(nsImage: image)
                         .resizable().scaledToFill()
                         .id(current.path)
                         .transition(.opacity)
-                } else {
-                    Rectangle().fill(.quaternary)
                 }
-                LinearGradient(colors: [.black.opacity(0.55), .clear],
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .clipped()
+            .animation(.easeInOut(duration: 0.6), value: idx)
+            // Gradient + label as overlays: overlays always render above the
+            // content, so the label z-order can't be lost to the media.
+            .overlay(alignment: .bottom) {
+                LinearGradient(colors: [.black.opacity(0.6), .clear],
                                startPoint: .bottom, endPoint: .top)
-                    .frame(height: 60)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .frame(height: 72)
+            }
+            .overlay(alignment: .bottomLeading) {
                 HStack {
                     Text(title)
                         .font(.headline)
                         .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.85), radius: 2, x: 0, y: 1)
                     Spacer()
                     Text("\(count)")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(.black.opacity(0.4), in: Capsule())
+                        .background(.black.opacity(0.5), in: Capsule())
                 }
                 .padding(10)
             }
-            .animation(.easeInOut(duration: 0.6), value: idx)
             .task(id: idx) {
                 guard items.indices.contains(idx) else { return }
                 let item = items[idx]
@@ -406,7 +417,6 @@ private struct TimeCard: View {
                 }
             }
         }
-        .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .contentShape(Rectangle())
         .onTapGesture { action() }
