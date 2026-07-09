@@ -53,6 +53,7 @@ final class LibraryViewModel: ObservableObject {
     var cellFrames: [String: CGRect] = [:]
     @Published var sidebarOpen = false
     @Published var detailsItem: MediaItem?   // grid "View Details" modal
+    @Published var posterPickerItem: MediaItem?   // Live Photo poster-frame picker sheet
     @Published var scope: LibraryScope = .all {
         didSet {
             guard scope != oldValue else { return }
@@ -316,9 +317,29 @@ final class LibraryViewModel: ObservableObject {
         viewerIndex = ViewerMath.clamp(i + delta, count: visibleItems.count)
     }
 
+    /// Cache key includes the item's `posterTime` so choosing/resetting a
+    /// Live Photo poster frame invalidates the previously cached thumbnail
+    /// (a different key simply misses the cache) without needing to purge it.
+    private func thumbnailCacheKey(for item: MediaItem, size: Int) -> NSString {
+        guard let posterTime = item.posterTime else { return "\(item.path)#\(size)" as NSString }
+        return "\(item.path)#\(size)#poster\(posterTime)" as NSString
+    }
+
     func thumbnail(for item: MediaItem, size: Int = 160) async -> NSImage? {
-        let key = "\(item.path)#\(size)" as NSString
+        let key = thumbnailCacheKey(for: item, size: size)
         if let cached = thumbCache.object(forKey: key) { return cached }
+        // Live Photo with a chosen poster frame: render it from the paired
+        // motion file instead of decoding the HEIC. Non-destructive — reads
+        // the MOV, never writes it or the original still.
+        if isLive(item), let posterTime = item.posterTime,
+           let motionPath = livePairs.videoPath(forImagePath: item.path) {
+            guard let image = await PosterRenderer.posterImage(
+                motionPath: motionPath, time: posterTime, maxPixel: CGFloat(size * 2)
+            ) else { return nil }
+            let cost = Int(image.size.width * image.size.height * 4)
+            thumbCache.setObject(image, forKey: key, cost: cost)
+            return image
+        }
         guard let url = await service.thumbnails.thumbnailURL(for: item, size: size) else { return nil }
         guard let image = NSImage(contentsOf: url) else { return nil }
         let cost = Int(image.size.width * image.size.height * 4)
@@ -330,7 +351,7 @@ final class LibraryViewModel: ObservableObject {
     /// zoom animation with content immediately, without waiting on the async
     /// disk/QuickLook path `thumbnail(for:size:)` uses.
     func cachedThumbnail(for item: MediaItem, size: Int) -> NSImage? {
-        thumbCache.object(forKey: "\(item.path)#\(size)" as NSString)
+        thumbCache.object(forKey: thumbnailCacheKey(for: item, size: size))
     }
 
     func isLive(_ item: MediaItem) -> Bool {
@@ -456,6 +477,24 @@ final class LibraryViewModel: ObservableObject {
                 self.refreshEpoch += 1
                 self.refreshItems(fresh)
                 self.clearSelection()
+            }
+        }
+    }
+
+    /// Set (or clear, when `time` is nil) a Live Photo's chosen poster frame
+    /// — a time offset into the paired motion file, stored in the DB only.
+    /// Never touches the original HEIC/MOV on disk (see `PosterRenderer`).
+    func setPosterTime(_ item: MediaItem, time: Double?) {
+        let path = item.path
+        let service = self.service
+        thumbCache.removeObject(forKey: thumbnailCacheKey(for: item, size: density.rawValue))
+        Task.detached {
+            let index = service.mediaIndex
+            try? index.setPosterTime(path: path, time: time)
+            let fresh = (try? service.items()) ?? []
+            await MainActor.run {
+                self.refreshEpoch += 1
+                self.refreshItems(fresh)
             }
         }
     }

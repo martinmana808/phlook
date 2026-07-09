@@ -338,6 +338,11 @@ struct ViewerView: View {
                             .foregroundStyle(.white)
                     }
                     .disabled(livePlayer != nil)
+                    Button {
+                        vm.posterPickerItem = item
+                    } label: {
+                        Text("Set Poster…").foregroundStyle(.white)
+                    }
                 }
                 Button { vm.sidebarOpen.toggle() } label: {
                     Image(systemName: "info.circle").foregroundStyle(.white)
@@ -405,11 +410,20 @@ struct ViewerView: View {
         } else {
             let capturedPath = item.path
             let maxPixel = (NSScreen.main.map { $0.frame.width * $0.backingScaleFactor } ?? 2560) * 2
-            let loaded = await Task.detached {
-                Self.downsampledImage(at: url, maxPixel: maxPixel)
-            }.value
-            // Rapid navigation: only publish if this decode is still the current item.
-            if vm.currentItem?.path == capturedPath { image = loaded }
+            if let posterTime = item.posterTime, vm.isLive(item),
+               let motionPath = vm.livePairs.videoPath(forImagePath: item.path) {
+                // Live Photo with a chosen poster frame: render from the
+                // motion file (non-destructive) instead of decoding the HEIC.
+                let loaded = await PosterRenderer.posterImage(
+                    motionPath: motionPath, time: posterTime, maxPixel: maxPixel)
+                if vm.currentItem?.path == capturedPath { image = loaded }
+            } else {
+                let loaded = await Task.detached {
+                    Self.downsampledImage(at: url, maxPixel: maxPixel)
+                }.value
+                // Rapid navigation: only publish if this decode is still the current item.
+                if vm.currentItem?.path == capturedPath { image = loaded }
+            }
         }
     }
 

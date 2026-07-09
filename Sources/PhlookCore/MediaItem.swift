@@ -16,6 +16,7 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
     public var hidden: Bool
     public var kindFlags: Int
     public var sceneFlags: Int
+    public var posterTime: Double?
 
     public static let databaseTableName = "files"
 
@@ -36,17 +37,20 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
         case hidden
         case kindFlags = "kind_flags"
         case sceneFlags = "scene_flags"
+        case posterTime = "poster_time"
     }
 
     public init(id: Int64? = nil, path: String, hash: String?, dateTaken: Date?,
                 fileType: String, width: Int?, height: Int?, lastScanned: Date,
                 duration: Double? = nil, fileSize: Int? = nil, modifiedAt: Date? = nil,
-                hidden: Bool = false, kindFlags: Int = 0, sceneFlags: Int = 0) {
+                hidden: Bool = false, kindFlags: Int = 0, sceneFlags: Int = 0,
+                posterTime: Double? = nil) {
         self.id = id; self.path = path; self.hash = hash; self.dateTaken = dateTaken
         self.fileType = fileType; self.width = width; self.height = height
         self.lastScanned = lastScanned; self.duration = duration
         self.fileSize = fileSize; self.modifiedAt = modifiedAt
         self.hidden = hidden; self.kindFlags = kindFlags; self.sceneFlags = sceneFlags
+        self.posterTime = posterTime
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {

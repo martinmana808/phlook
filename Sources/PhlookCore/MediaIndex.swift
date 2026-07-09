@@ -38,7 +38,8 @@ public final class MediaIndex {
                     modified_at TEXT,
                     hidden INTEGER NOT NULL DEFAULT 0,
                     kind_flags INTEGER NOT NULL DEFAULT 0,
-                    scene_flags INTEGER NOT NULL DEFAULT 0
+                    scene_flags INTEGER NOT NULL DEFAULT 0,
+                    poster_time REAL
                 );
             """)
             // Databases created before the duration column existed:
@@ -101,6 +102,13 @@ public final class MediaIndex {
                 try db.execute(sql: "UPDATE files SET scene_flags = 0 WHERE file_type = 'video'")
                 try db.execute(sql: "PRAGMA user_version = 6")
             }
+            if version < 7 {
+                let cols = try db.columns(in: "files").map(\.name)
+                if !cols.contains("poster_time") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN poster_time REAL")
+                }
+                try db.execute(sql: "PRAGMA user_version = 7")
+            }
         }
     }
 
@@ -132,8 +140,10 @@ public final class MediaIndex {
                     existing.sceneFlags = item.sceneFlags != 0 ? item.sceneFlags
                         : (existing.sceneFlags == -1 ? item.sceneFlags : existing.sceneFlags)
                 }
-                // hidden is never touched by upsert in either branch — only
-                // setHidden writes it, so a rescan or file replacement can't unhide.
+                // hidden and poster_time are never touched by upsert in either
+                // branch — only setHidden/setPosterTime write them, so a
+                // rescan or file replacement can't unhide or clear a chosen
+                // Live Photo poster frame.
                 // Scan-authoritative in both branches: nil-coalescing is safe
                 // because scan items always carry stamps, and enrichment
                 // write-backs carry the row's own non-nil values.
@@ -244,6 +254,16 @@ public final class MediaIndex {
                 try db.execute(sql: "UPDATE files SET hidden = ? WHERE path IN (\(placeholders))",
                                arguments: StatementArguments(args))
             }
+        }
+    }
+
+    /// Set (or clear, when `time` is nil) the chosen Live Photo poster frame's
+    /// time offset (seconds into the paired motion file) for a single path.
+    /// Never touches the original HEIC/MOV — DB metadata only.
+    public func setPosterTime(path: String, time: Double?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE files SET poster_time = ? WHERE path = ?",
+                           arguments: [time, path])
         }
     }
 

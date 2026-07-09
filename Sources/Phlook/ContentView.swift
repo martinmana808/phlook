@@ -51,6 +51,13 @@ struct ContentView: View {
                 motionPath: vm.livePairs.videoPath(forImagePath: item.path)
             ) { vm.detailsItem = nil }
         }
+        .sheet(item: $vm.posterPickerItem) { item in
+            if let motionPath = vm.livePairs.videoPath(forImagePath: item.path) {
+                PosterPickerSheet(vm: vm, item: item, motionPath: motionPath) {
+                    vm.posterPickerItem = nil
+                }
+            }
+        }
         .sheet(isPresented: Binding(
             get: { showResult },
             set: { if !$0 { importer.dismissResult() } }
