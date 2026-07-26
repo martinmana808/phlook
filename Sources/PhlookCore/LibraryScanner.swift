@@ -119,12 +119,6 @@ public struct LibraryScanner {
     /// doesn't have to be loaded into memory at once. Used to confirm
     /// duplicate candidates that share a `quickHash` before trashing.
     static func fullHash(_ url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        while let chunk = try? handle.read(upToCount: 4 * 1_048_576), !chunk.isEmpty {
-            hasher.update(data: chunk)
-        }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        FileHasher.sha256(of: url)
     }
 }
