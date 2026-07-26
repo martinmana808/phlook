@@ -18,11 +18,14 @@ public final class ArchiveService {
     private let index: MediaIndex
     private let encoder: SmallVersionEncoding
     private let proxyDir: URL
+    private let copyFile: (URL, URL) throws -> Void
 
-    public init(index: MediaIndex, encoder: SmallVersionEncoding, proxyDir: URL) {
+    public init(index: MediaIndex, encoder: SmallVersionEncoding, proxyDir: URL,
+                copyFile: @escaping (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }) {
         self.index = index
         self.encoder = encoder
         self.proxyDir = proxyDir
+        self.copyFile = copyFile
     }
 
     public func run(target: ArchiveTarget, items: [MediaItem], isCancelled: () -> Bool) -> ArchiveReport {
@@ -46,28 +49,35 @@ public final class ArchiveService {
             if !archivedThisFile {
                 do {
                     try fm.createDirectory(at: target.phlookRoot, withIntermediateDirectories: true)
-                    // 2. collision handling
                     if fm.fileExists(atPath: dest.path) {
-                        if FileHasher.sha256(of: dest) == h {
-                            // already there, identical — treat as archived
+                        // A file already occupies the FINAL destination name.
+                        guard let destHash = FileHasher.sha256(of: dest) else {
+                            report.failures.append("\(name) — could not read existing SSD file"); continue
+                        }
+                        if destHash == h {
+                            // Identical bytes already archived (idempotent resume).
                         } else {
                             report.skippedCollisions.append(name); continue
                         }
                     } else {
-                        // 3. copy
-                        try fm.copyItem(at: original, to: dest)
+                        // Copy to a temp partial, verify the read-back, then move atomically.
+                        // A crash leaves the ".phlook-partial" file (not the real name), so it is
+                        // never mistaken for a genuine collision and is cleared on the next run.
+                        let tmp = target.phlookRoot.appendingPathComponent(name + ".phlook-partial")
+                        try? fm.removeItem(at: tmp)               // clear any stale partial from a prior crash
+                        try copyFile(original, tmp)
+                        guard FileHasher.sha256(of: tmp) == h else {
+                            try? fm.removeItem(at: tmp)
+                            report.failures.append("\(name) — SSD copy failed verification"); continue
+                        }
+                        try fm.moveItem(at: tmp, to: dest)
                     }
-                    // 4. verify read-back
-                    guard FileHasher.sha256(of: dest) == h else {
-                        try? fm.removeItem(at: dest)
-                        report.failures.append("\(name) — SSD copy failed verification"); continue
-                    }
-                    // 5. commit archived
+                    // dest now holds verified-correct bytes. If markArchived throws here, dest is
+                    // KEPT (archivedHash stays nil); the next run resumes via the identical-hash path.
                     try index.markArchived(path: item.path, hash: h, at: Date())
                     archivedThisFile = true
                     report.archived += 1
                 } catch {
-                    try? fm.removeItem(at: dest)
                     report.failures.append("\(name) — archive error: \(error.localizedDescription)"); continue
                 }
             } else {

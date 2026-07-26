@@ -67,10 +67,27 @@ struct ArchiveServiceTests {
         #expect(row?.smallPath == w.proxy.appendingPathComponent("a.jpg").path)
     }
 
+    @Test func corruptCopyFailsVerifyAndKeepsOriginal() throws {
+        let w = try makeWorld()
+        let item = try addOriginal(w, "f.heic", "GOODBYTES", type: "image")
+        // A copy that lands WRONG bytes at the destination (simulated disk/USB corruption).
+        let corrupting = ArchiveService(index: w.index, encoder: w.encoder, proxyDir: w.proxy,
+                                        copyFile: { _, dst in try Data("CORRUPT".utf8).write(to: dst) })
+        let report = corrupting.run(target: w.target, items: [item], isCancelled: { false })
+
+        #expect(report.archived == 0)
+        #expect(report.failures.count == 1)
+        #expect(FileManager.default.fileExists(atPath: item.path))            // original KEPT
+        #expect(try w.index.item(forPath: item.path)?.archivedHash == nil)    // not marked archived
+        // No partial or final file left behind at the SSD destination:
+        #expect(!FileManager.default.fileExists(atPath: w.ssd.appendingPathComponent("PHLOOK/f.heic").path))
+        #expect(!FileManager.default.fileExists(atPath: w.ssd.appendingPathComponent("PHLOOK/f.heic.phlook-partial").path))
+    }
+
     @Test func hashMismatchOnReadBackKeepsOriginalAndClearsPartial() throws {
-        // Simulate a bad copy: pre-place a DIFFERENT file at the destination path
-        // AND make the copy step land on it. We approximate by making the dest a
-        // read-only directory so copy fails -> original must be kept, not archived.
+        // Pre-places a DIFFERENT-content file at the final destination path so the
+        // collision-detection branch (dest exists, hash differs from original) fires;
+        // this exercises skippedCollisions, not the copy-verify guard.
         let w = try makeWorld()
         let item = try addOriginal(w, "b.mov", "VIDEOBYTES", type: "video")
         // Put a colliding file with different content at the destination:
