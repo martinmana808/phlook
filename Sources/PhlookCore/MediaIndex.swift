@@ -39,7 +39,10 @@ public final class MediaIndex {
                     hidden INTEGER NOT NULL DEFAULT 0,
                     kind_flags INTEGER NOT NULL DEFAULT 0,
                     scene_flags INTEGER NOT NULL DEFAULT 0,
-                    poster_time REAL
+                    poster_time REAL,
+                    archived_hash TEXT,
+                    archived_at TEXT,
+                    small_path TEXT
                 );
             """)
             // Databases created before the duration column existed:
@@ -108,6 +111,19 @@ public final class MediaIndex {
                     try db.execute(sql: "ALTER TABLE files ADD COLUMN poster_time REAL")
                 }
                 try db.execute(sql: "PRAGMA user_version = 7")
+            }
+            if version < 8 {
+                let cols = try db.columns(in: "files").map(\.name)
+                if !cols.contains("archived_hash") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN archived_hash TEXT")
+                }
+                if !cols.contains("archived_at") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN archived_at TEXT")
+                }
+                if !cols.contains("small_path") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN small_path TEXT")
+                }
+                try db.execute(sql: "PRAGMA user_version = 8")
             }
         }
     }
