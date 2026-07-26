@@ -123,6 +123,13 @@ public final class MediaIndex {
                 if !cols.contains("small_path") {
                     try db.execute(sql: "ALTER TABLE files ADD COLUMN small_path TEXT")
                 }
+                try db.execute(sql: """
+                    CREATE TABLE IF NOT EXISTS archive_config (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        marker_id TEXT NOT NULL,
+                        ssd_label TEXT
+                    );
+                """)
                 try db.execute(sql: "PRAGMA user_version = 8")
             }
         }
@@ -220,6 +227,64 @@ public final class MediaIndex {
     public func item(forPath path: String) throws -> MediaItem? {
         try dbQueue.read { db in
             try MediaItem.filter(MediaItem.Columns.path == path).fetchOne(db)
+        }
+    }
+
+    public struct ArchiveCounts: Equatable {
+        public let needsArchiving: Int
+        public let hasSmall: Int
+        public let reclaimable: Int
+        public let reclaimableBytes: Int
+    }
+
+    public func setMarkerID(_ id: String, label: String?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO archive_config (id, marker_id, ssd_label) VALUES (1, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET marker_id = excluded.marker_id, ssd_label = excluded.ssd_label
+                """, arguments: [id, label])
+        }
+    }
+
+    public func markerID() throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT marker_id FROM archive_config WHERE id = 1")
+        }
+    }
+
+    public func markArchived(path: String, hash: String, at: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE files SET archived_hash = ?, archived_at = ? WHERE path = ?",
+                           arguments: [hash, at, path])
+        }
+    }
+
+    public func setSmallPath(path: String, smallPath: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE files SET small_path = ? WHERE path = ?",
+                           arguments: [smallPath, path])
+        }
+    }
+
+    public func itemsNeedingArchiving() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.filter(sql: "archived_hash IS NULL").fetchAll(db)
+        }
+    }
+
+    public func reclaimableItems() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.filter(sql: "archived_hash IS NOT NULL AND small_path IS NOT NULL").fetchAll(db)
+        }
+    }
+
+    public func archiveCounts() throws -> ArchiveCounts {
+        try dbQueue.read { db in
+            let needs = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE archived_hash IS NULL") ?? 0
+            let small = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE small_path IS NOT NULL") ?? 0
+            let recl = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE archived_hash IS NOT NULL AND small_path IS NOT NULL") ?? 0
+            let bytes = try Int.fetchOne(db, sql: "SELECT COALESCE(SUM(file_size),0) FROM files WHERE archived_hash IS NOT NULL AND small_path IS NOT NULL AND file_size IS NOT NULL") ?? 0
+            return ArchiveCounts(needsArchiving: needs, hasSmall: small, reclaimable: recl, reclaimableBytes: bytes)
         }
     }
 
