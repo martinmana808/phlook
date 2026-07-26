@@ -69,14 +69,22 @@ public struct SmallVersionEncoder: SmallVersionEncoding {
         let sem = DispatchSemaphore(value: 0)
         export.exportAsynchronously { sem.signal() }
         sem.wait()
-        guard export.status == .completed else { throw SmallVersionError.encodeFailed }
+        guard export.status == .completed else {
+            try? FileManager.default.removeItem(at: out)
+            throw SmallVersionError.encodeFailed
+        }
 
         // Size guard: if the "small" version isn't meaningfully smaller, keep the original bytes.
-        let inSize = (try? FileManager.default.attributesOfItem(atPath: original.path)[.size] as? Int) ?? nil
-        let outSize = (try? FileManager.default.attributesOfItem(atPath: out.path)[.size] as? Int) ?? nil
+        let inSize = (try? FileManager.default.attributesOfItem(atPath: original.path)[.size] as? Int)
+        let outSize = (try? FileManager.default.attributesOfItem(atPath: out.path)[.size] as? Int)
         if let i = inSize, let o = outSize, Double(o) >= Double(i) * Self.videoKeepThreshold {
+            // Keep the original bytes, preserving the source file's own extension so the
+            // codec/container isn't mislabeled (e.g. a non-MP4-compatible .mov).
             try? FileManager.default.removeItem(at: out)
-            try FileManager.default.copyItem(at: original, to: out)
+            let passthrough = proxyDir.appendingPathComponent(base).appendingPathExtension(original.pathExtension)
+            try? FileManager.default.removeItem(at: passthrough)
+            try FileManager.default.copyItem(at: original, to: passthrough)
+            return passthrough
         }
         return out
     }
