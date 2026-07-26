@@ -36,4 +36,22 @@ public enum LibraryTrasher {
         }
         return TrashOutcome(trashedPaths: trashed, failures: failures)
     }
+
+    /// Move files to the Trash WITHOUT pruning index rows. Used by archival
+    /// reclaim, where the row must survive (it carries archived_hash/small_path).
+    public static func trashFilesOnly(paths: [String]) -> TrashOutcome {
+        let fm = FileManager.default
+        var trashed: [String] = []
+        var failures: [String] = []
+        for path in paths {
+            if !fm.fileExists(atPath: path) { trashed.append(path); continue }
+            do {
+                try fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+                trashed.append(path)
+            } catch {
+                failures.append("\(URL(fileURLWithPath: path).lastPathComponent) — \(error.localizedDescription)")
+            }
+        }
+        return TrashOutcome(trashedPaths: trashed, failures: failures)
+    }
 }
