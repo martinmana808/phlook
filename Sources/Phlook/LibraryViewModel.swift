@@ -112,6 +112,17 @@ final class LibraryViewModel: ObservableObject {
     @Published var duplicateGroups: [[MediaItem]]?   // Duplicates sheet payload; nil = dismissed
     @Published var editedPairGroups: [[MediaItem]]?  // Original+edited (IMG_/IMG_E) pairs; nil = not yet run
     @Published var findingDuplicates = false
+    @Published var reclaimStatus: ReclaimStatus?
+    @Published var archiveRunning = false
+    @Published var lastArchiveReport: ArchiveReport?
+    @Published var showReclaim = false   // Reclaim space sheet presented flag (ContentView)
+    /// Read from the detached archive-run task's `isCancelled` closure (off
+    /// main); set on the main actor by `requestCancelArchive()`. A plain
+    /// racy flag — `nonisolated(unsafe)` so the background read compiles —
+    /// matching this app's existing lightweight-cancellation style (see
+    /// `refreshEpoch`). Worst case is one extra file processed after Cancel;
+    /// acceptable for a user-facing "stop soon" control.
+    nonisolated(unsafe) private var cancelArchive = false
     @Published var density: GridDensity = GridDensity(
         rawValue: UserDefaults.standard.integer(forKey: "gridDensity")) ?? .micro {
         didSet { UserDefaults.standard.set(density.rawValue, forKey: "gridDensity") }
@@ -432,6 +443,54 @@ final class LibraryViewModel: ObservableObject {
             .map { group in group.filter { !hiddenVideoPaths.contains($0.path) } }
             .filter { $0.count >= 2 }
         findingDuplicates = false
+    }
+
+    /// Refreshes the Reclaim-space panel's status (SSD connectivity + archive
+    /// counts). Cheap DB read — safe to call on appear/after every run.
+    func refreshReclaimStatus() {
+        reclaimStatus = try? service.reclaimStatus()
+    }
+
+    /// Marks `volumeRoot` as the PHLOOK archive drive (writes the marker file
+    /// + records its ID in the DB) and refreshes status.
+    func setUpArchiveDrive(volumeRoot: URL) {
+        _ = try? service.setUpArchiveDrive(volumeRoot: volumeRoot)
+        refreshReclaimStatus()
+    }
+
+    /// Runs the archive/shrink/reclaim pipeline for every item not yet
+    /// archived. `runArchive` is a synchronous, throwing, potentially
+    /// long-running (hashing/copying/encoding GBs) call — it MUST stay off
+    /// the main actor, so it runs inside `Task.detached` (mirrors
+    /// `confirmTrash`/`findDuplicates`'s off-main pattern) and only publishes
+    /// results back via `MainActor.run`.
+    func startArchive() {
+        guard !archiveRunning else { return }
+        archiveRunning = true
+        cancelArchive = false
+        let service = self.service
+        Task.detached {
+            let report = try? service.runArchive(isCancelled: { self.cancelArchive })
+            await MainActor.run {
+                self.lastArchiveReport = report
+                self.archiveRunning = false
+                self.refreshReclaimStatus()
+            }
+        }
+    }
+
+    func requestCancelArchive() {
+        cancelArchive = true
+    }
+
+    /// Reveal a small-version item's master on the archive SSD in Finder
+    /// (no-op if no SSD is resolvable or the master isn't actually there —
+    /// this only reveals, it never copies anything back).
+    func revealOriginalOnSSD(for item: MediaItem) {
+        guard let target = try? service.resolveArchiveTarget() else { return }
+        let master = target.phlookRoot.appendingPathComponent(URL(fileURLWithPath: item.path).lastPathComponent)
+        guard FileManager.default.fileExists(atPath: master.path) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([master])
     }
 
     /// Trash arbitrary paths (e.g. duplicate-review selections), expanding
