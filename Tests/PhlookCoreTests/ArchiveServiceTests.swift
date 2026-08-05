@@ -35,6 +35,7 @@ struct ArchiveServiceTests {
         let index = try MediaIndex(dbPath: root.appendingPathComponent("t.db").path)
         let encoder = FakeEncoder()
         let service = ArchiveService(index: index, encoder: encoder, proxyDir: proxy)
+        try SSDArchiveTarget.setUp(volumeRoot: ssd, markerID: "m")
         let target = ArchiveTarget(volumeRoot: ssd, markerID: "m")
         return World(lib: lib, ssd: ssd, proxy: proxy, index: index, service: service, encoder: encoder, target: target)
     }
@@ -137,5 +138,25 @@ struct ArchiveServiceTests {
         // First item processed, second cancelled before starting.
         #expect(report.archived == 1)
         #expect(FileManager.default.fileExists(atPath: b.path))    // b untouched
+    }
+
+    // FIX 3: the marker must be re-verified before each file, not just once
+    // at target-resolution time — if the SSD was ejected and /Volumes/<name>
+    // got recreated on the boot volume, a stale-but-still-open target must
+    // not let the run copy to (and reclaim from) the wrong disk.
+    @Test func markerGoneMidRunStopsWithoutArchivingAnything() throws {
+        let w = try makeWorld()
+        let item = try addOriginal(w, "g.heic", "GBYTES", type: "image")
+        // Simulate the drive having been ejected/replaced: remove the marker.
+        try FileManager.default.removeItem(at: w.ssd.appendingPathComponent(".phlook_archive"))
+
+        let report = w.service.run(target: w.target, items: [item], isCancelled: { false })
+
+        #expect(report.archived == 0)
+        #expect(FileManager.default.fileExists(atPath: item.path))           // original untouched
+        #expect(try w.index.item(forPath: item.path)?.archivedHash == nil)   // not marked archived
+        #expect(report.failures.contains { $0.contains("disconnected") })
+        // Nothing landed on the "SSD" (boot-volume stand-in) either.
+        #expect(!FileManager.default.fileExists(atPath: w.ssd.appendingPathComponent("PHLOOK/g.heic").path))
     }
 }

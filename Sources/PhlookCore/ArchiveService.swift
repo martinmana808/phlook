@@ -34,6 +34,14 @@ public final class ArchiveService {
 
         for item in items {
             if isCancelled() { break }
+            // Re-verify the drive is still the real archive drive before touching
+            // this file: if it was ejected mid-run and /Volumes/<name> got
+            // recreated on the boot volume, the stale target must not be used
+            // to archive-and-reclaim against the wrong disk.
+            guard SSDArchiveTarget.readMarkerID(at: target.volumeRoot) == target.markerID else {
+                report.failures.append("archive drive disconnected — stopped")
+                break
+            }
             let original = URL(fileURLWithPath: item.path)
             let name = original.lastPathComponent
             guard fm.fileExists(atPath: original.path) else { continue }   // already reclaimed elsewhere
