@@ -92,7 +92,7 @@ struct ThumbCell: View {
         .onHover { inside in
             guard item.fileType == "video", !isLive,
                   let d = item.duration, d > 0 else { return }
-            if inside { hover.hoverBegan(path: item.path) }
+            if inside { hover.hoverBegan(path: item.path, loadURL: item.bestLocalURL()) }
             else { hover.hoverEnded(path: item.path) }
         }
         // LazyVGrid recycling: a previewing cell scrolled offscreen never gets

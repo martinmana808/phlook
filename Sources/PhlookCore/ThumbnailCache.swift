@@ -16,7 +16,7 @@ public final class ThumbnailCache {
         if FileManager.default.fileExists(atPath: dest.path) { return dest }
 
         let request = QLThumbnailGenerator.Request(
-            fileAt: URL(fileURLWithPath: item.path),
+            fileAt: item.bestLocalURL(),
             size: CGSize(width: size, height: size),
             scale: 2.0,
             representationTypes: .thumbnail)

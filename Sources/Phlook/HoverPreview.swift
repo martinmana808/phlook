@@ -12,13 +12,17 @@ final class HoverPreviewCoordinator: ObservableObject {
     private var pendingTask: Task<Void, Never>?
     private var pendingPath: String?
 
-    func hoverBegan(path: String) {
+    /// `path` is the identity key (used for hover/active-cell comparisons);
+    /// `loadURL` is the actual file to play, which may be the item's 10%
+    /// small version when the original has been reclaimed (trashed after
+    /// SSD archive).
+    func hoverBegan(path: String, loadURL: URL) {
         pendingTask?.cancel()
         pendingPath = path
         pendingTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled else { return }
-            self?.start(path: path)
+            self?.start(path: path, loadURL: loadURL)
         }
     }
 
@@ -30,10 +34,10 @@ final class HoverPreviewCoordinator: ObservableObject {
         if activePath == path { stop() }
     }
 
-    private func start(path: String) {
+    private func start(path: String, loadURL: URL) {
         pendingPath = nil
         stop()
-        let item = AVPlayerItem(url: URL(fileURLWithPath: path))
+        let item = AVPlayerItem(url: loadURL)
         let queue = AVQueuePlayer()
         queue.isMuted = true
         looper = AVPlayerLooper(player: queue, templateItem: item)

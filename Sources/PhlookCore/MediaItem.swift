@@ -67,3 +67,15 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
 }
 
 extension MediaItem: Identifiable {}   // id: Int64? (row id) — non-nil for fetched rows
+
+public extension MediaItem {
+    /// The best LOCAL file to DISPLAY: the original if it still exists on disk,
+    /// otherwise the 10% small version. Lets reclaimed items (original trashed,
+    /// smallPath present) still render. Falls back to the original path if
+    /// neither exists (caller handles a missing file as it already does).
+    func bestLocalURL(fileManager: FileManager = .default) -> URL {
+        if fileManager.fileExists(atPath: path) { return URL(fileURLWithPath: path) }
+        if let sp = smallPath, fileManager.fileExists(atPath: sp) { return URL(fileURLWithPath: sp) }
+        return URL(fileURLWithPath: path)
+    }
+}
