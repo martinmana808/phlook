@@ -295,9 +295,15 @@ public final class MediaIndex {
         }
     }
 
+    /// Deletes rows whose local file is gone from the scanned set — EXCEPT
+    /// archived rows (archived_hash set): once an item is reclaimed, its
+    /// local original is intentionally gone, and the row is the only DB
+    /// pointer to the SSD master + small version. Pruning it would silently
+    /// make the app forget the entire archived set.
     public func deleteMissing(keepingPaths paths: Set<String>) throws {
         try dbQueue.write { db in
-            for item in try MediaItem.fetchAll(db) where !paths.contains(item.path) {
+            for item in try MediaItem.fetchAll(db)
+                where !paths.contains(item.path) && item.archivedHash == nil {
                 try item.delete(db)
             }
         }
