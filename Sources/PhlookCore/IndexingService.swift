@@ -138,7 +138,7 @@ public final class IndexingService {
 
     public func runArchive(isCancelled: @escaping () -> Bool) throws -> ArchiveReport {
         guard let target = try resolveArchiveTarget() else { throw ArchiveError.noSSD }
-        let pending = try index.itemsNeedingArchiving()
+        let pending = try index.itemsPendingArchiveOrShrink()
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         let service = ArchiveService(index: index, encoder: SmallVersionEncoder(), proxyDir: proxyRoot)
         return service.run(target: target, items: pending, isCancelled: isCancelled)

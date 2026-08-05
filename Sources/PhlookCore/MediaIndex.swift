@@ -272,6 +272,17 @@ public final class MediaIndex {
         }
     }
 
+    /// Rows the archive→shrink→reclaim pipeline hasn't fully completed for:
+    /// never archived, OR archived but not yet shrunk (e.g. a crash or
+    /// shrink failure stalled the item between markArchived and
+    /// setSmallPath). Used to build the archive-run work-set so a stalled
+    /// item is retried instead of being excluded forever once archived.
+    public func itemsPendingArchiveOrShrink() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.filter(sql: "archived_hash IS NULL OR small_path IS NULL").fetchAll(db)
+        }
+    }
+
     public func reclaimableItems() throws -> [MediaItem] {
         try dbQueue.read { db in
             try MediaItem.filter(sql: "archived_hash IS NOT NULL AND small_path IS NOT NULL").fetchAll(db)
