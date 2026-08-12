@@ -17,6 +17,9 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
     public var kindFlags: Int
     public var sceneFlags: Int
     public var posterTime: Double?
+    public var archivedHash: String?   // sha256 of the master, set only after SSD read-back verify
+    public var archivedAt: Date?       // when the SSD copy was verified
+    public var smallPath: String?      // path to the local 10% version (nil = not made yet)
 
     public static let databaseTableName = "files"
 
@@ -38,19 +41,24 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
         case kindFlags = "kind_flags"
         case sceneFlags = "scene_flags"
         case posterTime = "poster_time"
+        case archivedHash = "archived_hash"
+        case archivedAt = "archived_at"
+        case smallPath = "small_path"
     }
 
     public init(id: Int64? = nil, path: String, hash: String?, dateTaken: Date?,
                 fileType: String, width: Int?, height: Int?, lastScanned: Date,
                 duration: Double? = nil, fileSize: Int? = nil, modifiedAt: Date? = nil,
                 hidden: Bool = false, kindFlags: Int = 0, sceneFlags: Int = 0,
-                posterTime: Double? = nil) {
+                posterTime: Double? = nil,
+                archivedHash: String? = nil, archivedAt: Date? = nil, smallPath: String? = nil) {
         self.id = id; self.path = path; self.hash = hash; self.dateTaken = dateTaken
         self.fileType = fileType; self.width = width; self.height = height
         self.lastScanned = lastScanned; self.duration = duration
         self.fileSize = fileSize; self.modifiedAt = modifiedAt
         self.hidden = hidden; self.kindFlags = kindFlags; self.sceneFlags = sceneFlags
         self.posterTime = posterTime
+        self.archivedHash = archivedHash; self.archivedAt = archivedAt; self.smallPath = smallPath
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {
@@ -59,3 +67,15 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
 }
 
 extension MediaItem: Identifiable {}   // id: Int64? (row id) — non-nil for fetched rows
+
+public extension MediaItem {
+    /// The best LOCAL file to DISPLAY: the original if it still exists on disk,
+    /// otherwise the 10% small version. Lets reclaimed items (original trashed,
+    /// smallPath present) still render. Falls back to the original path if
+    /// neither exists (caller handles a missing file as it already does).
+    func bestLocalURL(fileManager: FileManager = .default) -> URL {
+        if fileManager.fileExists(atPath: path) { return URL(fileURLWithPath: path) }
+        if let sp = smallPath, fileManager.fileExists(atPath: sp) { return URL(fileURLWithPath: sp) }
+        return URL(fileURLWithPath: path)
+    }
+}

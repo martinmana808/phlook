@@ -92,7 +92,7 @@ struct ThumbCell: View {
         .onHover { inside in
             guard item.fileType == "video", !isLive,
                   let d = item.duration, d > 0 else { return }
-            if inside { hover.hoverBegan(path: item.path) }
+            if inside { hover.hoverBegan(path: item.path, loadURL: item.bestLocalURL()) }
             else { hover.hoverEnded(path: item.path) }
         }
         // LazyVGrid recycling: a previewing cell scrolled offscreen never gets
@@ -119,6 +119,8 @@ struct ThumbCell: View {
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
             }
+            Button("Show original on SSD") { vm.revealOriginalOnSSD(for: item) }
+                .disabled(item.archivedHash == nil)
             Divider()
             if vm.scope == .hidden {
                 Button("Unhide") { vm.setHidden(hideTargets(), hidden: false) }
@@ -222,9 +224,22 @@ struct MicroGridView: View {
                     Label("Find Duplicates", systemImage: "doc.on.doc")
                 }
             }
-            ImportBar(importer: importer)
+            Button {
+                vm.showReclaim = true
+            } label: {
+                Label("Reclaim Space", systemImage: "externaldrive.badge.timemachine")
+            }
+            ImportBar(importer: importer, archivingLine: archivingLine)
         }
         .padding(.vertical, 8)
+    }
+
+    /// Second line under ImportBar's status text: "…and N items still need
+    /// archiving." `newToImport` is unused by `humanImportLine` (only
+    /// `needsArchiving` gates the message), so it's fine that ImportBar's
+    /// own per-state `pending` count isn't threaded through here.
+    private var archivingLine: String? {
+        ReclaimStatus.humanImportLine(newToImport: 0, needsArchiving: vm.reclaimStatus?.counts.needsArchiving ?? 0)
     }
 
     private var emptyStateText: String {

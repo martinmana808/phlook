@@ -269,7 +269,7 @@ struct ViewerView: View {
         guard !hasSharpened, let item = vm.currentItem, item.fileType != "video" else { return }
         hasSharpened = true
         let capturedPath = item.path
-        let url = URL(fileURLWithPath: item.path)
+        let url = item.bestLocalURL()
         let maxPixel = (NSScreen.main.map { $0.frame.width * $0.backingScaleFactor } ?? 2560) * 4
         Task {
             let loaded = await Task.detached {
@@ -404,8 +404,8 @@ struct ViewerView: View {
         baseZoom = 1
         hasSharpened = false
         guard let item = vm.currentItem else { return }
-        let url = URL(fileURLWithPath: item.path)
-        guard FileManager.default.fileExists(atPath: item.path) else {
+        let url = item.bestLocalURL()
+        guard FileManager.default.fileExists(atPath: url.path) else {
             missing = true
             return
         }

@@ -111,4 +111,36 @@ public final class IndexingService {
     public func importedIdentifiers(device: String) throws -> Set<String> {
         try index.importedIdentifiers(device: device)
     }
+
+    public enum ArchiveError: Error { case noSSD }
+
+    public var proxyRoot: URL {
+        root.deletingLastPathComponent().appendingPathComponent("PHLOOK_proxy")
+    }
+
+    public func setUpArchiveDrive(volumeRoot: URL) throws -> ArchiveTarget {
+        let id = UUID().uuidString
+        try SSDArchiveTarget.setUp(volumeRoot: volumeRoot, markerID: id)
+        try index.setMarkerID(id, label: volumeRoot.lastPathComponent)
+        return ArchiveTarget(volumeRoot: volumeRoot, markerID: id)
+    }
+
+    public func resolveArchiveTarget() throws -> ArchiveTarget? {
+        guard let id = try index.markerID() else { return nil }
+        return SSDArchiveTarget.resolve(expectedMarkerID: id,
+                                        candidateRoots: SSDArchiveTarget.mountedVolumeRoots())
+    }
+
+    public func reclaimStatus() throws -> ReclaimStatus {
+        ReclaimStatus(ssdConnected: (try resolveArchiveTarget()) != nil,
+                      counts: try index.archiveCounts())
+    }
+
+    public func runArchive(isCancelled: @escaping () -> Bool) throws -> ArchiveReport {
+        guard let target = try resolveArchiveTarget() else { throw ArchiveError.noSSD }
+        let pending = try index.itemsPendingArchiveOrShrink()
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        let service = ArchiveService(index: index, encoder: SmallVersionEncoder(), proxyDir: proxyRoot)
+        return service.run(target: target, items: pending, isCancelled: isCancelled)
+    }
 }

@@ -76,6 +76,9 @@ struct ContentView: View {
         .sheet(isPresented: $importer.showDeviceBrowser) {
             DeviceBrowserSheet(importer: importer)
         }
+        .sheet(isPresented: $vm.showReclaim) {
+            ReclaimSpaceView(vm: vm)
+        }
         .confirmationDialog(
             "Move \(vm.pendingTrash?.count ?? 0) item(s) to Trash?",
             isPresented: Binding(get: { vm.pendingTrash != nil },
@@ -97,6 +100,7 @@ struct ContentView: View {
         .onAppear {
             importer.onLibraryChanged = { vm.load() }
             vm.load()
+            vm.refreshReclaimStatus()
             importer.start()
         }
     }

@@ -39,7 +39,10 @@ public final class MediaIndex {
                     hidden INTEGER NOT NULL DEFAULT 0,
                     kind_flags INTEGER NOT NULL DEFAULT 0,
                     scene_flags INTEGER NOT NULL DEFAULT 0,
-                    poster_time REAL
+                    poster_time REAL,
+                    archived_hash TEXT,
+                    archived_at TEXT,
+                    small_path TEXT
                 );
             """)
             // Databases created before the duration column existed:
@@ -108,6 +111,26 @@ public final class MediaIndex {
                     try db.execute(sql: "ALTER TABLE files ADD COLUMN poster_time REAL")
                 }
                 try db.execute(sql: "PRAGMA user_version = 7")
+            }
+            if version < 8 {
+                let cols = try db.columns(in: "files").map(\.name)
+                if !cols.contains("archived_hash") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN archived_hash TEXT")
+                }
+                if !cols.contains("archived_at") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN archived_at TEXT")
+                }
+                if !cols.contains("small_path") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN small_path TEXT")
+                }
+                try db.execute(sql: """
+                    CREATE TABLE IF NOT EXISTS archive_config (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        marker_id TEXT NOT NULL,
+                        ssd_label TEXT
+                    );
+                """)
+                try db.execute(sql: "PRAGMA user_version = 8")
             }
         }
     }
@@ -207,6 +230,75 @@ public final class MediaIndex {
         }
     }
 
+    public struct ArchiveCounts: Equatable {
+        public let needsArchiving: Int
+        public let hasSmall: Int
+        public let reclaimable: Int
+        public let reclaimableBytes: Int
+    }
+
+    public func setMarkerID(_ id: String, label: String?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO archive_config (id, marker_id, ssd_label) VALUES (1, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET marker_id = excluded.marker_id, ssd_label = excluded.ssd_label
+                """, arguments: [id, label])
+        }
+    }
+
+    public func markerID() throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT marker_id FROM archive_config WHERE id = 1")
+        }
+    }
+
+    public func markArchived(path: String, hash: String, at: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE files SET archived_hash = ?, archived_at = ? WHERE path = ?",
+                           arguments: [hash, at, path])
+        }
+    }
+
+    public func setSmallPath(path: String, smallPath: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE files SET small_path = ? WHERE path = ?",
+                           arguments: [smallPath, path])
+        }
+    }
+
+    public func itemsNeedingArchiving() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.filter(sql: "archived_hash IS NULL").fetchAll(db)
+        }
+    }
+
+    /// Rows the archive→shrink→reclaim pipeline hasn't fully completed for:
+    /// never archived, OR archived but not yet shrunk (e.g. a crash or
+    /// shrink failure stalled the item between markArchived and
+    /// setSmallPath). Used to build the archive-run work-set so a stalled
+    /// item is retried instead of being excluded forever once archived.
+    public func itemsPendingArchiveOrShrink() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.filter(sql: "archived_hash IS NULL OR small_path IS NULL").fetchAll(db)
+        }
+    }
+
+    public func reclaimableItems() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.filter(sql: "archived_hash IS NOT NULL AND small_path IS NOT NULL").fetchAll(db)
+        }
+    }
+
+    public func archiveCounts() throws -> ArchiveCounts {
+        try dbQueue.read { db in
+            let needs = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE archived_hash IS NULL") ?? 0
+            let small = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE small_path IS NOT NULL") ?? 0
+            let recl = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE archived_hash IS NOT NULL AND small_path IS NOT NULL") ?? 0
+            let bytes = try Int.fetchOne(db, sql: "SELECT COALESCE(SUM(file_size),0) FROM files WHERE archived_hash IS NOT NULL AND small_path IS NOT NULL AND file_size IS NOT NULL") ?? 0
+            return ArchiveCounts(needsArchiving: needs, hasSmall: small, reclaimable: recl, reclaimableBytes: bytes)
+        }
+    }
+
     public func allItems(sortedByDateDescending desc: Bool = true) throws -> [MediaItem] {
         try dbQueue.read { db in
             let order = desc ? MediaItem.Columns.dateTaken.desc : MediaItem.Columns.dateTaken.asc
@@ -214,9 +306,15 @@ public final class MediaIndex {
         }
     }
 
+    /// Deletes rows whose local file is gone from the scanned set — EXCEPT
+    /// archived rows (archived_hash set): once an item is reclaimed, its
+    /// local original is intentionally gone, and the row is the only DB
+    /// pointer to the SSD master + small version. Pruning it would silently
+    /// make the app forget the entire archived set.
     public func deleteMissing(keepingPaths paths: Set<String>) throws {
         try dbQueue.write { db in
-            for item in try MediaItem.fetchAll(db) where !paths.contains(item.path) {
+            for item in try MediaItem.fetchAll(db)
+                where !paths.contains(item.path) && item.archivedHash == nil {
                 try item.delete(db)
             }
         }

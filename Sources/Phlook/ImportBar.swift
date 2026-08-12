@@ -3,6 +3,9 @@ import PhlookCore
 
 struct ImportBar: View {
     @ObservedObject var importer: PhoneImportController
+    /// "…and N items still need archiving." — computed by the caller (from
+    /// `vm.reclaimStatus`) so this view stays view-model-free; nil hides it.
+    var archivingLine: String? = nil
 
     var body: some View {
         switch importer.state {
@@ -32,15 +35,23 @@ struct ImportBar: View {
                     }
                     Text("\(onDevice) on device · \(imported) already imported")
                         .font(.caption2).foregroundStyle(.secondary)
+                    if let archivingLine {
+                        Text(archivingLine).font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
             } else {
-                HStack(spacing: 6) {
-                    Label("Up to date — \(onDevice) on device, all imported", systemImage: "checkmark.circle")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Button("Browse…") {
-                        importer.showDeviceBrowser = true
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Label("Up to date — \(onDevice) on device, all imported", systemImage: "checkmark.circle")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Browse…") {
+                            importer.showDeviceBrowser = true
+                        }
+                        .controlSize(.small)
                     }
-                    .controlSize(.small)
+                    if let archivingLine {
+                        Text(archivingLine).font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
             }
         case .unreadable(let device):

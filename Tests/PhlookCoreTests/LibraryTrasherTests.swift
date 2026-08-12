@@ -79,4 +79,22 @@ struct LibraryTrasherTests {
         #expect(outcome.failures[0].contains("index update failed"))
         #expect(outcome.failures[0].contains("grid until the next rescan"))
     }
+
+    @Test func trashFilesOnlyMovesFileButKeepsRow() throws {
+        let (dir, index) = try makeWorld()
+        let a = try addFile(dir, "keep.jpg", index)
+        let outcome = LibraryTrasher.trashFilesOnly(paths: [a])
+        #expect(outcome.trashedPaths == [a])
+        #expect(!FileManager.default.fileExists(atPath: a))   // file gone
+        #expect(try index.item(forPath: a) != nil)            // row SURVIVES
+    }
+
+    @Test func trashFilesOnlyTreatsMissingAsDone() throws {
+        let (dir, index) = try makeWorld()
+        let a = try addFile(dir, "gone.jpg", index)
+        try FileManager.default.removeItem(atPath: a)
+        let outcome = LibraryTrasher.trashFilesOnly(paths: [a])
+        #expect(outcome.trashedPaths == [a])
+        #expect(outcome.failures.isEmpty)
+    }
 }
