@@ -3,6 +3,7 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 import AVFoundation
+import CoreGraphics
 
 public enum SmallVersionError: Error { case unreadable, encodeFailed }
 
@@ -15,76 +16,132 @@ public protocol SmallVersionEncoding {
 public struct SmallVersionEncoder: SmallVersionEncoding {
     public init() {}
 
-    private static let longEdge = 2048
-    private static let jpegQuality = 0.55
-    private static let videoKeepThreshold = 0.15   // export ≥15% of source ⇒ keep original bytes
+    // Tunables
+    static let targetRatio = 0.10          // aim ~10% of source
+    static let keepOriginalThreshold = 0.85 // if result >= 85% of source, it's already efficient → keep original
+    // video
+    static let videoLongEdge = 1280
+    static let videoShortEdge = 720
+    static let videoMinBitrate = 500_000
+    static let videoMaxBitrate = 6_000_000
+    static let audioBitrate = 96_000
+    // photo
+    static let photoLongEdge = 1600
+    static let photoQualities: [Double] = [0.6, 0.5, 0.4, 0.3]
+    static let photoTargetRatio = 0.12
+
+    static func ffmpegPath() -> String? {
+        for p in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"] {
+            if FileManager.default.isExecutableFile(atPath: p) { return p }
+        }
+        return nil
+    }
+
+    // Pure, unit-tested helpers
+    static func targetVideoBitrate(sourceBytes: Int, duration: Double) -> Int {
+        guard duration > 0 else { return videoMinBitrate }
+        let targetTotalBits = Double(sourceBytes) * 8.0 * targetRatio
+        let videoBits = targetTotalBits / duration - Double(audioBitrate)
+        return max(videoMinBitrate, min(videoMaxBitrate, Int(videoBits)))
+    }
+    static func shouldKeepOriginal(outBytes: Int, sourceBytes: Int) -> Bool {
+        sourceBytes > 0 && Double(outBytes) >= Double(sourceBytes) * keepOriginalThreshold
+    }
 
     public func makeSmallVersion(from original: URL, fileType: String, into proxyDir: URL) throws -> URL {
         try FileManager.default.createDirectory(at: proxyDir, withIntermediateDirectories: true)
         let base = original.deletingPathExtension().lastPathComponent
-        if fileType == "video" {
-            return try makeVideo(original, base: base, proxyDir: proxyDir)
-        } else {
-            return try makePhoto(original, base: base, proxyDir: proxyDir)
-        }
+        return fileType == "video"
+            ? try makeVideo(original, base: base, proxyDir: proxyDir)
+            : try makePhoto(original, base: base, proxyDir: proxyDir)
     }
 
-    // MARK: Photo (ImageIO, synchronous)
+    private func bytes(_ url: URL) -> Int {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int) ?? 0
+    }
 
+    private func keepOriginal(_ original: URL, base: String, proxyDir: URL) throws -> URL {
+        let out = proxyDir.appendingPathComponent(base).appendingPathExtension(original.pathExtension)
+        try? FileManager.default.removeItem(at: out)
+        try FileManager.default.copyItem(at: original, to: out)
+        return out
+    }
+
+    // MARK: Photo — ImageIO downscale + JPEG quality iteration to a size target
     private func makePhoto(_ original: URL, base: String, proxyDir: URL) throws -> URL {
         guard let src = CGImageSourceCreateWithURL(original as CFURL, nil),
               CGImageSourceGetCount(src) > 0 else { throw SmallVersionError.unreadable }
-        let out = proxyDir.appendingPathComponent(base).appendingPathExtension("jpg")
+        let srcBytes = bytes(original)
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,   // honor EXIF orientation
-            kCGImageSourceThumbnailMaxPixelSize: Self.longEdge
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Self.photoLongEdge
         ]
         guard let thumb = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
             throw SmallVersionError.encodeFailed
         }
-        guard let dest = CGImageDestinationCreateWithURL(
-            out as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
-            throw SmallVersionError.encodeFailed
+        let target = Int(Double(srcBytes) * Self.photoTargetRatio)
+        var best: Data?
+        for q in Self.photoQualities {
+            guard let d = jpegData(thumb, quality: q) else { continue }
+            best = d
+            if srcBytes == 0 || d.count <= target { break }
         }
-        CGImageDestinationAddImage(dest, thumb,
-            [kCGImageDestinationLossyCompressionQuality: Self.jpegQuality] as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { throw SmallVersionError.encodeFailed }
+        guard let data = best else { throw SmallVersionError.encodeFailed }
+        if Self.shouldKeepOriginal(outBytes: data.count, sourceBytes: srcBytes) {
+            return try keepOriginal(original, base: base, proxyDir: proxyDir)
+        }
+        let out = proxyDir.appendingPathComponent(base).appendingPathExtension("jpg")
+        try data.write(to: out)
         return out
     }
 
-    // MARK: Video (AVFoundation, 720p H.264; size-guard passthrough)
+    private func jpegData(_ image: CGImage, quality: Double) -> Data? {
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
+    }
 
+    // MARK: Video — ffmpeg, bitrate targeted for ~10%, downscaled to fit 1280x720
     private func makeVideo(_ original: URL, base: String, proxyDir: URL) throws -> URL {
         let out = proxyDir.appendingPathComponent(base).appendingPathExtension("mp4")
         try? FileManager.default.removeItem(at: out)
+        let srcBytes = bytes(original)
         let asset = AVURLAsset(url: original)
-        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset1280x720) else {
-            throw SmallVersionError.encodeFailed
+        let duration = CMTimeGetSeconds(asset.duration)
+        // Not a real video (audio-only / unreadable) → keep original bytes (legitimately can't shrink)
+        guard asset.tracks(withMediaType: .video).first != nil, duration > 0 else {
+            return try keepOriginal(original, base: base, proxyDir: proxyDir)
         }
-        export.outputURL = out
-        export.outputFileType = .mp4
-        export.shouldOptimizeForNetworkUse = true
+        // No encoder available → FAIL (loud): don't silently keep full-size for every video.
+        guard let ffmpeg = Self.ffmpegPath() else { throw SmallVersionError.encodeFailed }
+        let bitrate = Self.targetVideoBitrate(sourceBytes: srcBytes, duration: duration)
 
-        let sem = DispatchSemaphore(value: 0)
-        export.exportAsynchronously { sem.signal() }
-        sem.wait()
-        guard export.status == .completed else {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ffmpeg)
+        p.arguments = [
+            "-nostdin", "-y", "-i", original.path,
+            "-vf", "scale=\(Self.videoLongEdge):\(Self.videoShortEdge):force_original_aspect_ratio=decrease:force_divisible_by=2",
+            "-c:v", "libx264", "-b:v", "\(bitrate)", "-maxrate", "\(bitrate)", "-bufsize", "\(bitrate * 2)",
+            "-preset", "veryfast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "\(Self.audioBitrate)",
+            "-movflags", "+faststart",
+            out.path
+        ]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { throw SmallVersionError.encodeFailed }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: out.path) else {
             try? FileManager.default.removeItem(at: out)
-            throw SmallVersionError.encodeFailed
+            throw SmallVersionError.encodeFailed   // real failure → item stays unshrunk (original kept upstream), retryable
         }
-
-        // Size guard: if the "small" version isn't meaningfully smaller, keep the original bytes.
-        let inSize = (try? FileManager.default.attributesOfItem(atPath: original.path)[.size] as? Int)
-        let outSize = (try? FileManager.default.attributesOfItem(atPath: out.path)[.size] as? Int)
-        if let i = inSize, let o = outSize, Double(o) >= Double(i) * Self.videoKeepThreshold {
-            // Keep the original bytes, preserving the source file's own extension so the
-            // codec/container isn't mislabeled (e.g. a non-MP4-compatible .mov).
+        // Already-efficient clip the encode couldn't beat → keep original.
+        if Self.shouldKeepOriginal(outBytes: bytes(out), sourceBytes: srcBytes) {
             try? FileManager.default.removeItem(at: out)
-            let passthrough = proxyDir.appendingPathComponent(base).appendingPathExtension(original.pathExtension)
-            try? FileManager.default.removeItem(at: passthrough)
-            try FileManager.default.copyItem(at: original, to: passthrough)
-            return passthrough
+            return try keepOriginal(original, base: base, proxyDir: proxyDir)
         }
         return out
     }

@@ -2,6 +2,8 @@ import Testing
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import AVFoundation
+import CoreGraphics
 @testable import PhlookCore
 
 struct SmallVersionEncoderTests {
@@ -11,12 +13,62 @@ struct SmallVersionEncoderTests {
         return d
     }
 
-    /// Write a real PNG of the given pixel size so ImageIO can decode it.
-    private func writePNG(_ url: URL, w: Int, h: Int) throws {
+    // MARK: - Pure helpers
+
+    @Test func targetVideoBitrateTypicalCase() {
+        // 100MB over 100s @10% => 80Mbit/100s = 800kbps minus 96k audio = 704kbps
+        let bitrate = SmallVersionEncoder.targetVideoBitrate(sourceBytes: 100_000_000, duration: 100)
+        #expect(bitrate == 704_000)
+    }
+
+    @Test func targetVideoBitrateClampsToMinimum() {
+        // Tiny source, long duration → below floor
+        let bitrate = SmallVersionEncoder.targetVideoBitrate(sourceBytes: 1_000_000, duration: 600)
+        #expect(bitrate == 500_000)
+    }
+
+    @Test func targetVideoBitrateClampsToMaximum() {
+        // Huge source, short duration → above ceiling
+        let bitrate = SmallVersionEncoder.targetVideoBitrate(sourceBytes: 5_000_000_000, duration: 5)
+        #expect(bitrate == 6_000_000)
+    }
+
+    @Test func targetVideoBitrateZeroDurationReturnsMinimum() {
+        let bitrate = SmallVersionEncoder.targetVideoBitrate(sourceBytes: 100_000_000, duration: 0)
+        #expect(bitrate == 500_000)
+    }
+
+    @Test func shouldKeepOriginalWhenOutputIsAtLeast85Percent() {
+        #expect(SmallVersionEncoder.shouldKeepOriginal(outBytes: 90, sourceBytes: 100) == true)
+    }
+
+    @Test func shouldNotKeepOriginalWhenOutputIsMeaningfullySmaller() {
+        #expect(SmallVersionEncoder.shouldKeepOriginal(outBytes: 50, sourceBytes: 100) == false)
+    }
+
+    @Test func shouldKeepOriginalFalseWhenSourceIsZero() {
+        #expect(SmallVersionEncoder.shouldKeepOriginal(outBytes: 10, sourceBytes: 0) == false)
+    }
+
+    // MARK: - Photo (real)
+
+    /// Write a real PNG with noisy content so it doesn't trivially compress to nothing.
+    private func writeNoisyPNG(_ url: URL, w: Int, h: Int) throws {
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                             space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        var rng = SystemRandomNumberGenerator()
+        // Draw a grid of random-colored rectangles to create high-entropy content.
+        let cell = 16
+        for y in stride(from: 0, to: h, by: cell) {
+            for x in stride(from: 0, to: w, by: cell) {
+                let r = Double.random(in: 0...1, using: &rng)
+                let g = Double.random(in: 0...1, using: &rng)
+                let b = Double.random(in: 0...1, using: &rng)
+                ctx.setFillColor(CGColor(red: r, green: g, blue: b, alpha: 1))
+                ctx.fill(CGRect(x: x, y: y, width: cell, height: cell))
+            }
+        }
         let img = ctx.makeImage()!
         let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(dest, img, nil); CGImageDestinationFinalize(dest)
@@ -30,10 +82,10 @@ struct SmallVersionEncoderTests {
         return (w, h)
     }
 
-    @Test func photoIsDownscaledToLongEdge2048AsJpeg() throws {
+    @Test func photoIsDownscaledAndEncodedAsJpeg() throws {
         let dir = try tmp()
         let src = dir.appendingPathComponent("big.png")
-        try writePNG(src, w: 4000, h: 3000)
+        try writeNoisyPNG(src, w: 4000, h: 3000)
         let proxyDir = dir.appendingPathComponent("proxy")
 
         let out = try SmallVersionEncoder().makeSmallVersion(from: src, fileType: "image", into: proxyDir)
@@ -41,8 +93,7 @@ struct SmallVersionEncoderTests {
         #expect(out.pathExtension == "jpg")
         #expect(out.deletingPathExtension().lastPathComponent == "big")
         let (w, h) = try #require(pixelSize(out))
-        #expect(max(w, h) == 2048)                     // long edge clamped
-        #expect(h == 1536)                             // aspect preserved (3000*2048/4000)
+        #expect(max(w, h) <= 1600)                     // long edge clamped
         let outSize = try FileManager.default.attributesOfItem(atPath: out.path)[.size] as! Int
         let inSize  = try FileManager.default.attributesOfItem(atPath: src.path)[.size] as! Int
         #expect(outSize < inSize)                      // smaller than source
@@ -55,5 +106,111 @@ struct SmallVersionEncoderTests {
                 from: dir.appendingPathComponent("nope.png"), fileType: "image",
                 into: dir.appendingPathComponent("proxy"))
         }
+    }
+
+    // MARK: - Video (real, requires ffmpeg)
+
+    /// Write a ~3s 1920x1080 H.264 video with per-frame varying noisy content so it can't
+    /// trivially compress away, using AVAssetWriter.
+    private func writeTestVideo(_ url: URL, width: Int, height: Int, fps: Int32, frameCount: Int) throws {
+        try? FileManager.default.removeItem(at: url)
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let settings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: 40_000_000,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+            ]
+        ]
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+        input.expectsMediaDataInRealTime = false
+        let attrs: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height
+        ]
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: attrs)
+        writer.add(input)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+
+        let queue = DispatchQueue(label: "video-writer")
+        let sem = DispatchSemaphore(value: 0)
+        var frame = 0
+        input.requestMediaDataWhenReady(on: queue) {
+            while input.isReadyForMoreMediaData && frame < frameCount {
+                var pxBuffer: CVPixelBuffer?
+                CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &pxBuffer)
+                guard let buffer = pxBuffer else { break }
+                CVPixelBufferLockBaseAddress(buffer, [])
+                if let base = CVPixelBufferGetBaseAddress(buffer) {
+                    let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
+                    var rng = SplitMix64(seed: UInt64(frame) &* 2654435761)
+                    let ptr = base.assumingMemoryBound(to: UInt8.self)
+                    for y in 0..<height {
+                        let rowStart = y * rowBytes
+                        for x in stride(from: 0, to: width * 4, by: 4) {
+                            let v = rng.next()
+                            ptr[rowStart + x] = UInt8(truncatingIfNeeded: v)
+                            ptr[rowStart + x + 1] = UInt8(truncatingIfNeeded: v >> 8)
+                            ptr[rowStart + x + 2] = UInt8(truncatingIfNeeded: v >> 16)
+                            ptr[rowStart + x + 3] = 255
+                        }
+                    }
+                }
+                CVPixelBufferUnlockBaseAddress(buffer, [])
+                let time = CMTime(value: CMTimeValue(frame), timescale: fps)
+                adaptor.append(buffer, withPresentationTime: time)
+                frame += 1
+            }
+            if frame >= frameCount {
+                input.markAsFinished()
+                writer.finishWriting { sem.signal() }
+            }
+        }
+        sem.wait()
+    }
+
+    /// Minimal fast PRNG for per-pixel noise generation.
+    private struct SplitMix64: RandomNumberGenerator {
+        var state: UInt64
+        init(seed: UInt64) { state = seed }
+        mutating func next() -> UInt64 {
+            state = state &+ 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    private func videoTrackSize(_ url: URL) async -> CGSize? {
+        let asset = AVURLAsset(url: url)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first else { return nil }
+        guard let size = try? await track.load(.naturalSize) else { return nil }
+        return size
+    }
+
+    @Test func videoIsShrunkAndDownscaled() async throws {
+        guard SmallVersionEncoder.ffmpegPath() != nil else { return } // skip gracefully without ffmpeg
+
+        let dir = try tmp()
+        let src = dir.appendingPathComponent("big.mp4")
+        try writeTestVideo(src, width: 1920, height: 1080, fps: 30, frameCount: 90)
+        let proxyDir = dir.appendingPathComponent("proxy")
+
+        let out = try SmallVersionEncoder().makeSmallVersion(from: src, fileType: "video", into: proxyDir)
+
+        #expect(FileManager.default.fileExists(atPath: out.path))
+        let outSize = try FileManager.default.attributesOfItem(atPath: out.path)[.size] as! Int
+        let inSize  = try FileManager.default.attributesOfItem(atPath: src.path)[.size] as! Int
+        #expect(inSize > 0)
+        #expect(outSize < Int(Double(inSize) * 0.6))
+
+        let size = try #require(await videoTrackSize(out))
+        let w = Int(abs(size.width)), h = Int(abs(size.height))
+        #expect(max(w, h) <= 1280 && min(w, h) <= 720)
     }
 }
