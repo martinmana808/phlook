@@ -25,10 +25,10 @@ public struct SmallVersionEncoder: SmallVersionEncoding {
     static let videoMinBitrate = 500_000
     static let videoMaxBitrate = 6_000_000
     static let audioBitrate = 96_000
-    // photo
-    static let photoLongEdge = 1600
-    static let photoQualities: [Double] = [0.6, 0.5, 0.4, 0.3]
-    static let photoTargetRatio = 0.12
+    // photo — quality-first: photos are a tiny fraction of total library GB
+    // (~7%), so keep them large and good-looking rather than squeezing to 10%.
+    static let photoLongEdge = 2560
+    static let photoQuality = 0.82
 
     static func ffmpegPath() -> String? {
         for p in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"] {
@@ -67,7 +67,7 @@ public struct SmallVersionEncoder: SmallVersionEncoding {
         return out
     }
 
-    // MARK: Photo — ImageIO downscale + JPEG quality iteration to a size target
+    // MARK: Photo — ImageIO downscale to a generous long edge at high JPEG quality
     private func makePhoto(_ original: URL, base: String, proxyDir: URL) throws -> URL {
         guard let src = CGImageSourceCreateWithURL(original as CFURL, nil),
               CGImageSourceGetCount(src) > 0 else { throw SmallVersionError.unreadable }
@@ -80,14 +80,10 @@ public struct SmallVersionEncoder: SmallVersionEncoding {
         guard let thumb = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
             throw SmallVersionError.encodeFailed
         }
-        let target = Int(Double(srcBytes) * Self.photoTargetRatio)
-        var best: Data?
-        for q in Self.photoQualities {
-            guard let d = jpegData(thumb, quality: q) else { continue }
-            best = d
-            if srcBytes == 0 || d.count <= target { break }
+        guard let data = jpegData(thumb, quality: Self.photoQuality) else {
+            throw SmallVersionError.encodeFailed
         }
-        guard let data = best else { throw SmallVersionError.encodeFailed }
+        // Already-efficient small original (e.g. a tiny HEIC) the JPEG can't beat → keep it.
         if Self.shouldKeepOriginal(outBytes: data.count, sourceBytes: srcBytes) {
             return try keepOriginal(original, base: base, proxyDir: proxyDir)
         }

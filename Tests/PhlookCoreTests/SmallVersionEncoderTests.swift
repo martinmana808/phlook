@@ -52,24 +52,19 @@ struct SmallVersionEncoderTests {
 
     // MARK: - Photo (real)
 
-    /// Write a real PNG with noisy content so it doesn't trivially compress to nothing.
+    /// Write a real PNG filled with true random noise so it is large and
+    /// incompressible — guaranteeing the encoder takes the downscale+JPEG path
+    /// (not the keep-original passthrough that a smooth image would trigger).
     private func writeNoisyPNG(_ url: URL, w: Int, h: Int) throws {
+        let bytesPerRow = w * 4
+        var raw = Data(count: bytesPerRow * h)
+        raw.withUnsafeMutableBytes { arc4random_buf($0.baseAddress!, $0.count) }
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
-        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        var rng = SystemRandomNumberGenerator()
-        // Draw a grid of random-colored rectangles to create high-entropy content.
-        let cell = 16
-        for y in stride(from: 0, to: h, by: cell) {
-            for x in stride(from: 0, to: w, by: cell) {
-                let r = Double.random(in: 0...1, using: &rng)
-                let g = Double.random(in: 0...1, using: &rng)
-                let b = Double.random(in: 0...1, using: &rng)
-                ctx.setFillColor(CGColor(red: r, green: g, blue: b, alpha: 1))
-                ctx.fill(CGRect(x: x, y: y, width: cell, height: cell))
-            }
-        }
-        let img = ctx.makeImage()!
+        let provider = CGDataProvider(data: raw as CFData)!
+        let img = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32,
+                          bytesPerRow: bytesPerRow, space: cs,
+                          bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                          provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
         let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(dest, img, nil); CGImageDestinationFinalize(dest)
     }
@@ -93,7 +88,7 @@ struct SmallVersionEncoderTests {
         #expect(out.pathExtension == "jpg")
         #expect(out.deletingPathExtension().lastPathComponent == "big")
         let (w, h) = try #require(pixelSize(out))
-        #expect(max(w, h) <= 1600)                     // long edge clamped
+        #expect(max(w, h) <= 2560)                     // long edge clamped
         let outSize = try FileManager.default.attributesOfItem(atPath: out.path)[.size] as! Int
         let inSize  = try FileManager.default.attributesOfItem(atPath: src.path)[.size] as! Int
         #expect(outSize < inSize)                      // smaller than source
