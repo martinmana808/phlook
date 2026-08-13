@@ -298,6 +298,7 @@ git commit -m "feat: MediaIndex protect/claim mutators + curation counts"
         let fs = item("/fs", prot: true)
         #expect(LibraryScope.notBackedUp.matches(nb, livePairs: lp) == true)
         #expect(LibraryScope.notBackedUp.matches(cp, livePairs: lp) == false)
+        #expect(LibraryScope.notBackedUp.matches(fs, livePairs: lp) == false)  // protected → Full size only, not Not backed up
         #expect(LibraryScope.compressed.matches(cp, livePairs: lp) == true)
         #expect(LibraryScope.compressed.matches(fs, livePairs: lp) == false)  // protected ≠ compressed
         #expect(LibraryScope.fullSize.matches(fs, livePairs: lp) == true)
@@ -333,7 +334,7 @@ Add to the enum (after `.hidden`):
 In `matches`, add to the `switch self` (before the category cases):
 ```swift
         case .notBackedUp:
-            return item.archivedHash == nil
+            return item.archivedHash == nil && !item.protected   // protected items live only in Full size (mutually-exclusive storage buckets, matching curationCounts)
         case .compressed:
             return item.archivedHash != nil && item.smallPath != nil && !item.protected
         case .fullSize:
