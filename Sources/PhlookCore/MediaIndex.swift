@@ -42,7 +42,10 @@ public final class MediaIndex {
                     poster_time REAL,
                     archived_hash TEXT,
                     archived_at TEXT,
-                    small_path TEXT
+                    small_path TEXT,
+                    curated INTEGER NOT NULL DEFAULT 1,
+                    protected INTEGER NOT NULL DEFAULT 0,
+                    ssd_rel_path TEXT
                 );
             """)
             // Databases created before the duration column existed:
@@ -131,6 +134,19 @@ public final class MediaIndex {
                     );
                 """)
                 try db.execute(sql: "PRAGMA user_version = 8")
+            }
+            if version < 9 {
+                let cols = try db.columns(in: "files").map(\.name)
+                if !cols.contains("curated") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN curated INTEGER NOT NULL DEFAULT 1")
+                }
+                if !cols.contains("protected") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN protected INTEGER NOT NULL DEFAULT 0")
+                }
+                if !cols.contains("ssd_rel_path") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN ssd_rel_path TEXT")
+                }
+                try db.execute(sql: "PRAGMA user_version = 9")
             }
         }
     }
