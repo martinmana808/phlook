@@ -115,6 +115,7 @@ final class LibraryViewModel: ObservableObject {
     @Published var reclaimStatus: ReclaimStatus?
     @Published var archiveRunning = false
     @Published var lastArchiveReport: ArchiveReport?
+    @Published var archiveProgress: (done: Int, total: Int)? = nil
     @Published var showReclaim = false   // Reclaim space sheet presented flag (ContentView)
     /// Read from the detached archive-run task's `isCancelled` closure (off
     /// main); set on the main actor by `requestCancelArchive()`. A plain
@@ -468,12 +469,16 @@ final class LibraryViewModel: ObservableObject {
         guard !archiveRunning else { return }
         archiveRunning = true
         cancelArchive = false
+        archiveProgress = nil
         let service = self.service
         Task.detached {
-            let report = try? service.runArchive(isCancelled: { self.cancelArchive })
+            let report = try? service.runArchive(isCancelled: { self.cancelArchive }, onProgress: { done, total in
+                Task { @MainActor in self.archiveProgress = (done, total) }
+            })
             await MainActor.run {
                 self.lastArchiveReport = report
                 self.archiveRunning = false
+                self.archiveProgress = nil
                 self.refreshReclaimStatus()
             }
         }

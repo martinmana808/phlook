@@ -28,12 +28,18 @@ public final class ArchiveService {
         self.copyFile = copyFile
     }
 
-    public func run(target: ArchiveTarget, items: [MediaItem], isCancelled: () -> Bool) -> ArchiveReport {
+    public func run(target: ArchiveTarget, items: [MediaItem], isCancelled: () -> Bool,
+                     onProgress: ((Int, Int) -> Void)? = nil) -> ArchiveReport {
         let fm = FileManager.default
         var report = ArchiveReport()
+        var completed = 0
 
         for item in items {
             if isCancelled() { break }
+            defer {
+                completed += 1
+                onProgress?(completed, items.count)
+            }
             // Re-verify the drive is still the real archive drive before touching
             // this file: if it was ejected mid-run and /Volumes/<name> got
             // recreated on the boot volume, the stale target must not be used

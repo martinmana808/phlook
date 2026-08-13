@@ -136,11 +136,12 @@ public final class IndexingService {
                       counts: try index.archiveCounts())
     }
 
-    public func runArchive(isCancelled: @escaping () -> Bool) throws -> ArchiveReport {
+    public func runArchive(isCancelled: @escaping () -> Bool,
+                            onProgress: ((Int, Int) -> Void)? = nil) throws -> ArchiveReport {
         guard let target = try resolveArchiveTarget() else { throw ArchiveError.noSSD }
         let pending = try index.itemsPendingArchiveOrShrink()
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         let service = ArchiveService(index: index, encoder: SmallVersionEncoder(), proxyDir: proxyRoot)
-        return service.run(target: target, items: pending, isCancelled: isCancelled)
+        return service.run(target: target, items: pending, isCancelled: isCancelled, onProgress: onProgress)
     }
 }

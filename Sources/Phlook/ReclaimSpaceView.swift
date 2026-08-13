@@ -10,6 +10,10 @@ struct ReclaimSpaceView: View {
     @ObservedObject var vm: LibraryViewModel
     @State private var showingSetupPicker = false
 
+    private func formatted(_ n: Int) -> String {
+        n.formatted(.number)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Reclaim space").font(.title2).bold()
@@ -19,7 +23,13 @@ struct ReclaimSpaceView: View {
                 Text("\(s.counts.hasSmall) have 10% versions").font(.caption).foregroundStyle(.secondary)
 
                 if vm.archiveRunning {
-                    ProgressView("Archiving…")
+                    if let p = vm.archiveProgress {
+                        ProgressView(value: Double(p.done), total: Double(p.total))
+                        Text("Archiving \(formatted(p.done)) of \(formatted(p.total))…")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        ProgressView("Archiving…")
+                    }
                     Button("Cancel") { vm.requestCancelArchive() }
                 } else {
                     Button {

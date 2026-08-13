@@ -140,6 +140,34 @@ struct ArchiveServiceTests {
         #expect(FileManager.default.fileExists(atPath: b.path))    // b untouched
     }
 
+    @Test func reportsProgressAfterEachItem() throws {
+        let w = try makeWorld()
+        let a = try addOriginal(w, "p1.heic", "AAAA", type: "image")
+        let b = try addOriginal(w, "p2.heic", "BBBB", type: "image")
+        let c = try addOriginal(w, "p3.heic", "CCCC", type: "image")
+        var progress: [(Int, Int)] = []
+        let report = w.service.run(target: w.target, items: [a, b, c], isCancelled: { false }) { done, total in
+            progress.append((done, total))
+        }
+        #expect(report.archived == 3)
+        #expect(progress.map { $0.0 } == [1, 2, 3])
+        #expect(progress.map { $0.1 } == [3, 3, 3])
+    }
+
+    @Test func progressStopsAtCancellationPoint() throws {
+        let w = try makeWorld()
+        let a = try addOriginal(w, "q1.heic", "AAAA", type: "image")
+        let b = try addOriginal(w, "q2.heic", "BBBB", type: "image")
+        var seen = 0
+        var progress: [(Int, Int)] = []
+        let report = w.service.run(target: w.target, items: [a, b], isCancelled: { seen += 1; return seen > 1 }) { done, total in
+            progress.append((done, total))
+        }
+        #expect(report.archived == 1)
+        #expect(progress.map { $0.0 } == [1])
+        #expect(progress.map { $0.1 } == [2])
+    }
+
     // FIX 3: the marker must be re-verified before each file, not just once
     // at target-resolution time — if the SSD was ejected and /Volumes/<name>
     // got recreated on the boot volume, a stale-but-still-open target must
