@@ -136,6 +136,27 @@ struct LibraryScopeTests {
             #expect(!scope.matches(unclassified, livePairs: .empty))
         }
     }
+
+    // MARK: - Archive state scopes
+
+    @Test func archiveStateScopes() throws {
+        func item(_ path: String, archived: String? = nil, small: String? = nil, prot: Bool = false, hidden: Bool = false) -> MediaItem {
+            MediaItem(path: path, hash: "h", dateTaken: nil, fileType: "image", width: nil, height: nil,
+                      lastScanned: Date(), hidden: hidden, smallPath: small, protected: prot, ssdRelPath: nil).with(archivedHash: archived)
+        }
+        let lp = LivePairs.empty
+        let nb = item("/nb", archived: nil)
+        let cp = item("/cp", archived: "h", small: "/p.jpg")
+        let fs = item("/fs", prot: true)
+        #expect(LibraryScope.notBackedUp.matches(nb, livePairs: lp) == true)
+        #expect(LibraryScope.notBackedUp.matches(cp, livePairs: lp) == false)
+        #expect(LibraryScope.notBackedUp.matches(fs, livePairs: lp) == false)  // protected → Full size only, not Not backed up
+        #expect(LibraryScope.compressed.matches(cp, livePairs: lp) == true)
+        #expect(LibraryScope.compressed.matches(fs, livePairs: lp) == false)  // protected ≠ compressed
+        #expect(LibraryScope.fullSize.matches(fs, livePairs: lp) == true)
+        // hidden always excluded
+        #expect(LibraryScope.notBackedUp.matches(item("/h", archived: nil, hidden: true), livePairs: lp) == false)
+    }
 }
 
 struct DateRangeFilterTests {
@@ -189,4 +210,10 @@ struct DateRangeFilterTests {
         let filter = DateRangeFilter(upper: upper)
         #expect(!filter.matches(mkItem(dateTaken: upper)))
     }
+}
+
+// convenience: MediaItem is a value type; set archivedHash via a copy
+// (kept in the test file to avoid touching production for a test detail)
+private extension MediaItem {
+    func with(archivedHash: String?) -> MediaItem { var c = self; c.archivedHash = archivedHash; return c }
 }
