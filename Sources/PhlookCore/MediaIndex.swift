@@ -295,7 +295,7 @@ public final class MediaIndex {
     /// item is retried instead of being excluded forever once archived.
     public func itemsPendingArchiveOrShrink() throws -> [MediaItem] {
         try dbQueue.read { db in
-            try MediaItem.filter(sql: "archived_hash IS NULL OR small_path IS NULL").fetchAll(db)
+            try MediaItem.filter(sql: "archived_hash IS NULL OR (small_path IS NULL AND protected = 0)").fetchAll(db)
         }
     }
 

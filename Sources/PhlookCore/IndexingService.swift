@@ -147,8 +147,23 @@ public final class IndexingService {
             ?? target.phlookRoot.appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: master.path) else { return false }
         let dest = URL(fileURLWithPath: item.path)
+        let tempURL = URL(fileURLWithPath: dest.path + ".claim-partial")
+        try? FileManager.default.removeItem(at: tempURL)
+        try FileManager.default.copyItem(at: master, to: tempURL)
+
+        let verified: Bool
+        if let expected = item.archivedHash {
+            verified = FileHasher.sha256(of: tempURL) == expected
+        } else {
+            verified = true
+        }
+        guard verified else {
+            try? FileManager.default.removeItem(at: tempURL)
+            return false
+        }
+
         try? FileManager.default.removeItem(at: dest)
-        try FileManager.default.copyItem(at: master, to: dest)
+        try FileManager.default.moveItem(at: tempURL, to: dest)
         let rel = item.ssdRelPath ?? "PHLOOK/\(name)"
         try index.setClaimed(path: item.path, ssdRelPath: rel)
         if let sp = item.smallPath { try? FileManager.default.removeItem(at: URL(fileURLWithPath: sp)) }

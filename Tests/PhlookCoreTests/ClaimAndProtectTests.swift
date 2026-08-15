@@ -47,7 +47,8 @@ struct ClaimAndProtectTests {
         // simulate a reclaimed item: original gone locally, master on SSD, has a 10% proxy
         let ssd = w.root.appendingPathComponent("ssd")
         try FileManager.default.createDirectory(at: ssd.appendingPathComponent("PHLOOK"), withIntermediateDirectories: true)
-        try Data("REALMASTER".utf8).write(to: ssd.appendingPathComponent("PHLOOK/\(name)"))
+        let masterURL = ssd.appendingPathComponent("PHLOOK/\(name)")
+        try Data("REALMASTER".utf8).write(to: masterURL)
         try SSDArchiveTarget.setUp(volumeRoot: ssd, markerID: "m")
         try w.index.setMarkerID("m", label: "ssd")   // so resolveArchiveTarget can find it via mountedVolumeRoots? see note
         let proxyDir = w.svc.proxyRoot
@@ -55,7 +56,8 @@ struct ClaimAndProtectTests {
         let proxy = proxyDir.appendingPathComponent("c.jpg"); try Data("small".utf8).write(to: proxy)
         var item = MediaItem(path: localPath, hash: "h", dateTaken: nil, fileType: "image",
                              width: nil, height: nil, lastScanned: Date(), smallPath: proxy.path)
-        item.archivedHash = "hm"
+        // archivedHash must match the real master's sha256 for the copy-verify step to pass
+        item.archivedHash = FileHasher.sha256(of: masterURL)
         try w.index.upsert(item)
         item = try w.index.item(forPath: localPath)!
 
@@ -67,5 +69,38 @@ struct ClaimAndProtectTests {
         #expect(row?.protected == true)
         #expect(row?.smallPath == nil)
         #expect(!FileManager.default.fileExists(atPath: proxy.path))        // proxy removed
+    }
+
+    // FIX 2: if the copied master doesn't match the recorded archivedHash
+    // (corrupt/partial copy), claimFullSize must NOT touch the local
+    // original or proxy, must NOT mark the item claimed, and must clean up
+    // its temp file. Returns false.
+    @Test func claimFullSizeRejectsCorruptCopyAndLeavesOriginalsIntact() throws {
+        let w = try world()
+        let name = "d.heic"
+        let localPath = w.svc.root.appendingPathComponent(name).path
+        try Data("LOCAL-ORIGINAL".utf8).write(to: URL(fileURLWithPath: localPath))
+        let ssd = w.root.appendingPathComponent("ssd")
+        try FileManager.default.createDirectory(at: ssd.appendingPathComponent("PHLOOK"), withIntermediateDirectories: true)
+        try Data("CORRUPT-OR-WRONG-MASTER".utf8).write(to: ssd.appendingPathComponent("PHLOOK/\(name)"))
+        try SSDArchiveTarget.setUp(volumeRoot: ssd, markerID: "m")
+        try w.index.setMarkerID("m", label: "ssd")
+        let proxyDir = w.svc.proxyRoot
+        try FileManager.default.createDirectory(at: proxyDir, withIntermediateDirectories: true)
+        let proxy = proxyDir.appendingPathComponent("d.jpg"); try Data("small".utf8).write(to: proxy)
+        var item = MediaItem(path: localPath, hash: "h", dateTaken: nil, fileType: "image",
+                             width: nil, height: nil, lastScanned: Date(), smallPath: proxy.path)
+        item.archivedHash = "expected-hash-that-will-not-match"
+        try w.index.upsert(item)
+        item = try w.index.item(forPath: localPath)!
+
+        let ok = try w.svc.claimFullSize(item, resolvedTarget: ArchiveTarget(volumeRoot: ssd, markerID: "m"))
+        #expect(ok == false)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: localPath)) == Data("LOCAL-ORIGINAL".utf8)) // untouched
+        let row = try w.index.item(forPath: localPath)
+        #expect(row?.protected == false)          // not claimed
+        #expect(row?.smallPath == proxy.path)     // proxy record untouched
+        #expect(FileManager.default.fileExists(atPath: proxy.path))          // proxy not deleted
+        #expect(!FileManager.default.fileExists(atPath: localPath + ".claim-partial"))  // temp cleaned up
     }
 }
