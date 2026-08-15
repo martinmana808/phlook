@@ -38,6 +38,11 @@ struct SidebarView: View {
                     row(.screenshots, symbol: "camera.viewfinder")
                     row(.selfies, symbol: "person.crop.square")
                 }
+                Section("Storage") {
+                    row(.notBackedUp, symbol: "externaldrive.badge.xmark")
+                    row(.compressed, symbol: "arrow.down.right.and.arrow.up.left")
+                    row(.fullSize, symbol: "lock.doc")
+                }
                 if !populatedCategoryScopes.isEmpty {
                     Section("Categories") {
                         ForEach(populatedCategoryScopes) { scope in

@@ -20,6 +20,9 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
     public var archivedHash: String?   // sha256 of the master, set only after SSD read-back verify
     public var archivedAt: Date?       // when the SSD copy was verified
     public var smallPath: String?      // path to the local 10% version (nil = not made yet)
+    public var curated: Bool
+    public var protected: Bool
+    public var ssdRelPath: String?
 
     public static let databaseTableName = "files"
 
@@ -44,6 +47,9 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
         case archivedHash = "archived_hash"
         case archivedAt = "archived_at"
         case smallPath = "small_path"
+        case curated
+        case protected
+        case ssdRelPath = "ssd_rel_path"
     }
 
     public init(id: Int64? = nil, path: String, hash: String?, dateTaken: Date?,
@@ -51,7 +57,8 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
                 duration: Double? = nil, fileSize: Int? = nil, modifiedAt: Date? = nil,
                 hidden: Bool = false, kindFlags: Int = 0, sceneFlags: Int = 0,
                 posterTime: Double? = nil,
-                archivedHash: String? = nil, archivedAt: Date? = nil, smallPath: String? = nil) {
+                archivedHash: String? = nil, archivedAt: Date? = nil, smallPath: String? = nil,
+                curated: Bool = true, protected: Bool = false, ssdRelPath: String? = nil) {
         self.id = id; self.path = path; self.hash = hash; self.dateTaken = dateTaken
         self.fileType = fileType; self.width = width; self.height = height
         self.lastScanned = lastScanned; self.duration = duration
@@ -59,6 +66,7 @@ public struct MediaItem: Codable, Equatable, FetchableRecord, PersistableRecord 
         self.hidden = hidden; self.kindFlags = kindFlags; self.sceneFlags = sceneFlags
         self.posterTime = posterTime
         self.archivedHash = archivedHash; self.archivedAt = archivedAt; self.smallPath = smallPath
+        self.curated = curated; self.protected = protected; self.ssdRelPath = ssdRelPath
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {

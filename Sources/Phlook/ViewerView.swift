@@ -334,6 +334,23 @@ struct ViewerView: View {
                     .background(.white.opacity(0.12), in: Capsule())
                     .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 0.5))
                 }
+                if let item = vm.currentItem, vm.isCompressed(item) {
+                    HStack(spacing: 8) {
+                        Text("Compressed (10%)").foregroundStyle(.white)
+                        if (try? vm.service.resolveArchiveTarget()) != nil {
+                            Button("Claim full size") { vm.claimFullSize(item) }
+                                .foregroundStyle(.white)
+                        } else {
+                            Button("Connect PHLOOK_SSD to restore") {}
+                                .foregroundStyle(.white)
+                                .disabled(true)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.white.opacity(0.12), in: Capsule())
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 0.5))
+                }
                 if let item = vm.currentItem, vm.isLive(item) {
                     Button {
                         playLive(for: item)

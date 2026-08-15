@@ -98,6 +98,9 @@ public final class ArchiveService {
                 report.archived += 1
             }
 
+            // Protected items are backed up but kept full-res: never shrunk or reclaimed.
+            if item.protected { continue }
+
             // 6. shrink
             let smallURL: URL
             do {

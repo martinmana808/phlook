@@ -42,7 +42,10 @@ public final class MediaIndex {
                     poster_time REAL,
                     archived_hash TEXT,
                     archived_at TEXT,
-                    small_path TEXT
+                    small_path TEXT,
+                    curated INTEGER NOT NULL DEFAULT 1,
+                    protected INTEGER NOT NULL DEFAULT 0,
+                    ssd_rel_path TEXT
                 );
             """)
             // Databases created before the duration column existed:
@@ -131,6 +134,19 @@ public final class MediaIndex {
                     );
                 """)
                 try db.execute(sql: "PRAGMA user_version = 8")
+            }
+            if version < 9 {
+                let cols = try db.columns(in: "files").map(\.name)
+                if !cols.contains("curated") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN curated INTEGER NOT NULL DEFAULT 1")
+                }
+                if !cols.contains("protected") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN protected INTEGER NOT NULL DEFAULT 0")
+                }
+                if !cols.contains("ssd_rel_path") {
+                    try db.execute(sql: "ALTER TABLE files ADD COLUMN ssd_rel_path TEXT")
+                }
+                try db.execute(sql: "PRAGMA user_version = 9")
             }
         }
     }
@@ -279,7 +295,7 @@ public final class MediaIndex {
     /// item is retried instead of being excluded forever once archived.
     public func itemsPendingArchiveOrShrink() throws -> [MediaItem] {
         try dbQueue.read { db in
-            try MediaItem.filter(sql: "archived_hash IS NULL OR small_path IS NULL").fetchAll(db)
+            try MediaItem.filter(sql: "archived_hash IS NULL OR (small_path IS NULL AND protected = 0)").fetchAll(db)
         }
     }
 
@@ -432,6 +448,46 @@ public final class MediaIndex {
                     HAVING count(*) > 1
                 )
             """)
+        }
+    }
+
+    public struct CurationCounts: Equatable {
+        public let notBackedUp: Int
+        public let compressed: Int
+        public let fullSize: Int
+    }
+
+    public func setProtected(paths: [String], protected: Bool) throws {
+        guard !paths.isEmpty else { return }
+        try dbQueue.write { db in
+            for chunk in stride(from: 0, to: paths.count, by: 500).map({
+                Array(paths[$0..<min($0 + 500, paths.count)]) }) {
+                let ph = repeatElement("?", count: chunk.count).joined(separator: ",")
+                try db.execute(sql: "UPDATE files SET protected = ? WHERE path IN (\(ph))",
+                               arguments: StatementArguments([protected] + chunk))
+            }
+        }
+    }
+
+    public func setClaimed(path: String, ssdRelPath: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE files SET protected = 1, ssd_rel_path = ?, small_path = NULL WHERE path = ?",
+                           arguments: [ssdRelPath, path])
+        }
+    }
+
+    public func itemsToShrink() throws -> [MediaItem] {
+        try dbQueue.read { db in
+            try MediaItem.filter(sql: "archived_hash IS NOT NULL AND small_path IS NULL AND protected = 0").fetchAll(db)
+        }
+    }
+
+    public func curationCounts() throws -> CurationCounts {
+        try dbQueue.read { db in
+            let nb = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE archived_hash IS NULL AND protected = 0") ?? 0
+            let cp = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE archived_hash IS NOT NULL AND small_path IS NOT NULL AND protected = 0") ?? 0
+            let fs = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE protected = 1") ?? 0
+            return CurationCounts(notBackedUp: nb, compressed: cp, fullSize: fs)
         }
     }
 }

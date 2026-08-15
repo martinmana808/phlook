@@ -69,6 +69,25 @@ struct ThumbCell: View {
                     .padding(4)
             }
         }
+        .overlay(alignment: .topTrailing) {
+            // "10%" / "Full" storage badges — mutually exclusive (compressed
+            // items are never protected; see `isCompressed`).
+            if vm.isCompressed(item) {
+                Text("10%")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .padding(3)
+            } else if item.protected {
+                Text("Full")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .padding(3)
+            }
+        }
         .overlay {
             if isSelected {
                 Rectangle().strokeBorder(Color.accentColor, lineWidth: 3)
@@ -121,6 +140,16 @@ struct ThumbCell: View {
             }
             Button("Show original on SSD") { vm.revealOriginalOnSSD(for: item) }
                 .disabled(item.archivedHash == nil)
+            Divider()
+            if item.protected {
+                Button("Unprotect") { vm.setProtected([item], false) }
+            } else {
+                Button("Protect (keep full size)") { vm.setProtected([item], true) }
+            }
+            if vm.isCompressed(item) {
+                Button("Claim full size") { vm.claimFullSize(item) }
+                    .disabled((try? vm.service.resolveArchiveTarget()) == nil)
+            }
             Divider()
             if vm.scope == .hidden {
                 Button("Unhide") { vm.setHidden(hideTargets(), hidden: false) }

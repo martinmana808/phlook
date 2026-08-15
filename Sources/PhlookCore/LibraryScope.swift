@@ -26,6 +26,9 @@ public enum LibraryScope: String, CaseIterable, Identifiable, Hashable {
     case categoryArt = "Art"
     case categoryText = "Text"
     case categoryBeach = "Beach"
+    case notBackedUp = "Not backed up"
+    case compressed = "Compressed"
+    case fullSize = "Full size"
 
     public var id: String { rawValue }
 
@@ -69,6 +72,12 @@ public enum LibraryScope: String, CaseIterable, Identifiable, Hashable {
             return item.fileType == "image" && KindFlags(rawValue: item.kindFlags).contains(.selfie)
         case .hidden:
             return item.hidden   // unreachable (handled above); exhaustiveness
+        case .notBackedUp:
+            return item.archivedHash == nil && !item.protected   // protected items live only in Full size (mutually-exclusive storage buckets, matching curationCounts)
+        case .compressed:
+            return item.archivedHash != nil && item.smallPath != nil && !item.protected
+        case .fullSize:
+            return item.protected
         case .categoryNature, .categoryFood, .categoryDocument, .categoryAnimal,
              .categoryVehicle, .categoryPlant, .categoryWater, .categoryBuilding,
              .categorySky, .categoryArt, .categoryText, .categoryBeach:

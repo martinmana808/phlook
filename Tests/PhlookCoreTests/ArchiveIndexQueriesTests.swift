@@ -60,4 +60,28 @@ struct ArchiveIndexQueriesTests {
         let pending = try index.itemsPendingArchiveOrShrink().map(\.path).sorted()
         #expect(pending == ["/lib/new.heic", "/lib/stalled.mov"])
     }
+
+    // FIX 1: a protected item is never shrunk, so small_path stays NULL
+    // forever. Without excluding protected rows, itemsPendingArchiveOrShrink()
+    // would keep matching it on every runArchive, causing unbounded
+    // re-hashing of the full original. Protected + archived rows must be
+    // excluded once archived, since they're intentionally never shrunk.
+    @Test func itemsPendingArchiveOrShrinkExcludesArchivedProtected() throws {
+        let index = try newIndex()
+        try add(index, "/lib/new.heic", size: 100)                 // brand-new: both nil -> included
+        try add(index, "/lib/stalled.mov", size: 200)               // archived, not shrunk, not protected -> included
+        try add(index, "/lib/protected.jpg", size: 300)             // archived + protected -> excluded
+        try add(index, "/lib/done.jpg", size: 400)                  // archived + shrunk -> excluded
+
+        try index.markArchived(path: "/lib/stalled.mov", hash: "hs", at: Date())
+
+        try index.markArchived(path: "/lib/protected.jpg", hash: "hp", at: Date())
+        try index.setProtected(paths: ["/lib/protected.jpg"], protected: true)
+
+        try index.markArchived(path: "/lib/done.jpg", hash: "hd", at: Date())
+        try index.setSmallPath(path: "/lib/done.jpg", smallPath: "/proxy/done.jpg")
+
+        let pending = try index.itemsPendingArchiveOrShrink().map(\.path).sorted()
+        #expect(pending == ["/lib/new.heic", "/lib/stalled.mov"])
+    }
 }

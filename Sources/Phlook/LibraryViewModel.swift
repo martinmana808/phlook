@@ -549,6 +549,47 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Protect/unprotect the given items (keep-full-size flag honored by the
+    /// shrink pipeline — protected items are archived but never shrunk).
+    /// Mirrors `setHidden`'s shape/off-main pattern.
+    func setProtected(_ items: [MediaItem], _ protectedFlag: Bool) {
+        guard !items.isEmpty else { return }
+        let paths = items.map(\.path)
+        let service = self.service
+        Task.detached {
+            let index = service.mediaIndex
+            try? index.setProtected(paths: paths, protected: protectedFlag)
+            let fresh = (try? service.items()) ?? []
+            await MainActor.run {
+                self.refreshEpoch += 1
+                self.refreshItems(fresh)
+            }
+        }
+    }
+
+    /// Claims back the full-size master from the SSD for a compressed (10%)
+    /// item, protecting it so it never gets re-shrunk. `claimFullSize` is a
+    /// synchronous, throwing, potentially long-running (copying GBs) call —
+    /// mirrors `confirmTrash`/`setHidden`'s off-main pattern.
+    func claimFullSize(_ item: MediaItem) {
+        let service = self.service
+        Task.detached {
+            _ = try? service.claimFullSize(item)
+            let fresh = (try? service.items()) ?? []
+            await MainActor.run {
+                self.refreshEpoch += 1
+                self.refreshItems(fresh)
+            }
+        }
+    }
+
+    /// True when this item's local copy is the 10% version (compressed) —
+    /// archived, shrunk, and not protected. Protected items always keep
+    /// their full-size local copy even after archiving.
+    func isCompressed(_ item: MediaItem) -> Bool {
+        item.archivedHash != nil && item.smallPath != nil && !item.protected
+    }
+
     /// Set (or clear, when `time` is nil) a Live Photo's chosen poster frame
     /// — a time offset into the paired motion file, stored in the DB only.
     /// Never touches the original HEIC/MOV on disk (see `PosterRenderer`).
