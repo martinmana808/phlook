@@ -136,6 +136,25 @@ public final class IndexingService {
                       counts: try index.archiveCounts())
     }
 
+    /// Restore an archived item's full-resolution master from the SSD to its
+    /// local path and mark it protected (kept full-res, never re-shrunk).
+    /// `resolvedTarget` is for tests; production passes nil and it resolves.
+    @discardableResult
+    public func claimFullSize(_ item: MediaItem, resolvedTarget: ArchiveTarget? = nil) throws -> Bool {
+        guard let target = try (resolvedTarget ?? resolveArchiveTarget()) else { throw ArchiveError.noSSD }
+        let name = URL(fileURLWithPath: item.path).lastPathComponent
+        let master = item.ssdRelPath.map { target.volumeRoot.appendingPathComponent($0) }
+            ?? target.phlookRoot.appendingPathComponent(name)
+        guard FileManager.default.fileExists(atPath: master.path) else { return false }
+        let dest = URL(fileURLWithPath: item.path)
+        try? FileManager.default.removeItem(at: dest)
+        try FileManager.default.copyItem(at: master, to: dest)
+        let rel = item.ssdRelPath ?? "PHLOOK/\(name)"
+        try index.setClaimed(path: item.path, ssdRelPath: rel)
+        if let sp = item.smallPath { try? FileManager.default.removeItem(at: URL(fileURLWithPath: sp)) }
+        return true
+    }
+
     public func runArchive(isCancelled: @escaping () -> Bool,
                             onProgress: ((Int, Int) -> Void)? = nil) throws -> ArchiveReport {
         guard let target = try resolveArchiveTarget() else { throw ArchiveError.noSSD }
