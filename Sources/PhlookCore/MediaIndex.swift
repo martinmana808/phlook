@@ -16,6 +16,8 @@ public final class MediaIndex {
 
     private let dbQueue: DatabaseQueue
 
+    var dbForTesting: DatabaseQueue { dbQueue }
+
     public init(dbPath: String) throws {
         dbQueue = try DatabaseQueue(path: dbPath)
         try migrate()
@@ -151,6 +153,27 @@ public final class MediaIndex {
             if version < 10 {
                 try Self.repairImageDatesFromFilenames(db)
                 try db.execute(sql: "PRAGMA user_version = 10")
+            }
+            if version < 11 {
+                try db.execute(sql: """
+                    CREATE TABLE IF NOT EXISTS albums (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(name COLLATE NOCASE)
+                    );
+                """)
+                try db.execute(sql: """
+                    CREATE TABLE IF NOT EXISTS album_items (
+                        album_id INTEGER NOT NULL,
+                        file_path TEXT NOT NULL,
+                        added_at TEXT NOT NULL,
+                        PRIMARY KEY (album_id, file_path),
+                        FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
+                    );
+                """)
+                try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_album_items_path ON album_items(file_path)")
+                try db.execute(sql: "PRAGMA user_version = 11")
             }
         }
     }
