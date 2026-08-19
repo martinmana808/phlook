@@ -30,4 +30,26 @@ struct AlbumStoreTests {
         #expect(try i.albums().isEmpty)
         #expect(try i.albumMemberPaths(party).isEmpty)              // cascade
     }
+
+    @Test func deletePrunesOrphanedAlbumMemberships() throws {
+        let i = try newIndex()
+        let album = try i.createAlbum(name: "Trip")
+
+        try i.upsert(MediaItem(path: "/x/a.jpg", hash: "h1", dateTaken: nil, fileType: "image",
+                                width: nil, height: nil, lastScanned: Date(), fileSize: 1))
+        try i.addToAlbum(album, paths: ["/x/a.jpg"])
+        #expect(try i.albums().first(where: { $0.id == album })?.count == 1)
+
+        try i.delete(paths: ["/x/a.jpg"])
+        #expect(try i.albums().first(where: { $0.id == album })?.count == 0)
+        #expect(try i.albumMemberPaths(album) == [])
+
+        try i.upsert(MediaItem(path: "/x/b.jpg", hash: "h2", dateTaken: nil, fileType: "image",
+                                width: nil, height: nil, lastScanned: Date(), fileSize: 1))
+        try i.addToAlbum(album, paths: ["/x/b.jpg"])
+        #expect(try i.albumMemberPaths(album) == ["/x/b.jpg"])
+
+        try i.deleteMissing(keepingPaths: [])
+        #expect(try i.albumMemberPaths(album) == [])
+    }
 }

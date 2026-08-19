@@ -386,6 +386,7 @@ public final class MediaIndex {
                 where !paths.contains(item.path) && item.archivedHash == nil {
                 try item.delete(db)
             }
+            try db.execute(sql: "DELETE FROM album_items WHERE file_path NOT IN (SELECT path FROM files)")
         }
     }
 
@@ -405,6 +406,7 @@ public final class MediaIndex {
                 try db.execute(sql: "DELETE FROM files WHERE path IN (\(placeholders))",
                                arguments: StatementArguments(chunk))
             }
+            try db.execute(sql: "DELETE FROM album_items WHERE file_path NOT IN (SELECT path FROM files)")
         }
     }
 
