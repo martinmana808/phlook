@@ -81,6 +81,10 @@ final class LibraryViewModel: ObservableObject {
     /// Items to seed the "New Album" name prompt with; consumed by the UI
     /// (next task).
     @Published var newAlbumTarget: [MediaItem]? = nil
+
+    /// Album whose name is being edited via a Rename… prompt; set by the
+    /// sidebar's context menu, consumed by ContentView's rename alert.
+    @Published var renameAlbumTarget: Album? = nil
     @Published var dateRange = DateRangeFilter() {
         didSet {
             guard dateRange != oldValue else { return }

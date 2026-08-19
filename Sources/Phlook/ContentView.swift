@@ -3,6 +3,8 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var vm = LibraryViewModel()
     @StateObject private var importer: PhoneImportController
+    @State private var newAlbumName = ""
+    @State private var renameAlbumName = ""
 
     init() {
         let vm = LibraryViewModel()
@@ -96,6 +98,42 @@ struct ContentView: View {
             Button("OK") { vm.trashFailures = nil }
         } message: {
             Text(trashFailuresMessage)
+        }
+        .alert("New Album", isPresented: Binding(
+            get: { vm.newAlbumTarget != nil },
+            set: { if !$0 { vm.newAlbumTarget = nil; newAlbumName = "" } }
+        )) {
+            TextField("Name", text: $newAlbumName)
+            Button("Create") {
+                let items = vm.newAlbumTarget ?? []
+                let name = newAlbumName
+                vm.newAlbumTarget = nil
+                newAlbumName = ""
+                vm.createAlbum(named: name, andAdd: items)
+            }
+            Button("Cancel", role: .cancel) {
+                vm.newAlbumTarget = nil
+                newAlbumName = ""
+            }
+        }
+        .alert("Rename Album", isPresented: Binding(
+            get: { vm.renameAlbumTarget != nil },
+            set: { if !$0 { vm.renameAlbumTarget = nil; renameAlbumName = "" } }
+        ), presenting: vm.renameAlbumTarget) { album in
+            TextField("Name", text: $renameAlbumName)
+            Button("Rename") {
+                let name = renameAlbumName
+                vm.renameAlbumTarget = nil
+                renameAlbumName = ""
+                vm.renameAlbum(album.id, to: name)
+            }
+            Button("Cancel", role: .cancel) {
+                vm.renameAlbumTarget = nil
+                renameAlbumName = ""
+            }
+        }
+        .onChange(of: vm.renameAlbumTarget) { _, newValue in
+            if let album = newValue { renameAlbumName = album.name }
         }
         .onAppear {
             importer.onLibraryChanged = { vm.load() }

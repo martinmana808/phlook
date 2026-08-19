@@ -157,6 +157,25 @@ struct ThumbCell: View {
                 Button(hideTitle) { vm.setHidden(hideTargets(), hidden: true) }
             }
             Divider()
+            Menu("Add to Album") {
+                Button("New Album…") { vm.beginNewAlbum(for: hideTargets()) }
+                if !vm.albums.isEmpty { Divider() }
+                ForEach(vm.albums) { al in
+                    Button {
+                        vm.addToAlbum(al.id, hideTargets())
+                    } label: {
+                        if vm.albumIDs(for: item).contains(al.id) {
+                            Label(al.name, systemImage: "checkmark")
+                        } else {
+                            Text(al.name)
+                        }
+                    }
+                }
+            }
+            if let sel = vm.selectedAlbumID {
+                Button("Remove from Album") { vm.removeFromAlbum(sel, hideTargets()) }
+            }
+            Divider()
             Button(trashTitle, role: .destructive) {
                 if !vm.selectedPaths.contains(item.path) {
                     vm.select(item, commandKey: false, shiftKey: false)
