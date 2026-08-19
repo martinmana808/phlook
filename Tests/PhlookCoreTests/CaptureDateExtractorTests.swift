@@ -35,6 +35,17 @@ struct CaptureDateExtractorTests {
         #expect(abs(cd.date.timeIntervalSince(birth)) < 1)
     }
 
+    @Test func filenameConventionWinsOverFileCreationWhenNoExif() async throws {
+        let dir = try makeDir()
+        let url = dir.appendingPathComponent("2024-06-30_23-05-40_test.jpg")
+        try TestFixtures.writeJPEG(at: url, width: 16, height: 16) // no captureDate (no EXIF)
+
+        let cd = await CaptureDateExtractor().captureDate(for: url)
+        #expect(cd.source == .filename)
+        #expect(Calendar.current.component(.year, from: cd.date) == 2024)
+        #expect(cd.timestampString().hasPrefix("2024-06-30_23-05-40"))
+    }
+
     @Test func unreadableVideoFallsBackToFileCreation() async throws {
         // A .mov that isn't a real movie: AVFoundation can't read it, so the
         // extractor must fall through to file-creation without throwing.

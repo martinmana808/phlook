@@ -1,7 +1,7 @@
 import Foundation
 
 public enum DateSource: String, Equatable {
-    case exif, videoMetadata, fileCreation
+    case exif, videoMetadata, fileCreation, filename
 }
 
 /// A capture instant plus the timezone whose wall-clock time should appear
@@ -45,6 +45,20 @@ public struct CaptureDate: Equatable {
             }
         }
         return nil
+    }
+
+    /// Parses PHLOOK's filename convention prefix `YYYY-MM-DD_HH-MM-SS_` as a
+    /// capture date in the current time zone (round-trips with timestampString()).
+    public static func parseFilename(_ basename: String) -> CaptureDate? {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        // require the convention prefix immediately followed by '_'
+        guard basename.range(of: #"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_"#, options: .regularExpression) != nil else { return nil }
+        let stamp = String(basename.prefix(19))   // "YYYY-MM-DD_HH-MM-SS"
+        guard let date = f.date(from: stamp) else { return nil }
+        return CaptureDate(date: date, timeZone: .current, source: .filename)
     }
 
     /// Extracts the trailing UTC offset from an already-validated date string.

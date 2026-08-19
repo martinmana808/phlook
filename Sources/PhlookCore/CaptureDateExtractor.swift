@@ -17,6 +17,9 @@ public struct CaptureDateExtractor {
         if LibraryScanner.videoExts.contains(ext), let cd = await Self.videoDate(url) {
             return cd
         }
+        if let cd = CaptureDate.parseFilename(url.lastPathComponent) {
+            return cd
+        }
         let birth = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? Date()
         return CaptureDate(date: birth, timeZone: .current, source: .fileCreation)
     }

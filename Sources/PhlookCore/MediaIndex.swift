@@ -148,6 +148,36 @@ public final class MediaIndex {
                 }
                 try db.execute(sql: "PRAGMA user_version = 9")
             }
+            if version < 10 {
+                try Self.repairImageDatesFromFilenames(db)
+                try db.execute(sql: "PRAGMA user_version = 10")
+            }
+        }
+    }
+
+    /// For every image row, parse the filename's PHLOOK convention prefix and,
+    /// if it differs from the stored date_taken by more than an hour (or the
+    /// row has no date_taken), overwrite date_taken with the parsed date.
+    /// This repairs rows whose date came from a file-creation fallback that a
+    /// later copy pushed forward — the filename prefix is the true capture
+    /// date, computed once at ingest.
+    private static func repairImageDatesFromFilenames(_ db: Database) throws {
+        let rows = try Row.fetchAll(db, sql: "SELECT path, date_taken FROM files WHERE file_type = 'image'")
+        for row in rows {
+            let path: String = row["path"]
+            guard let parsed = CaptureDate.parseFilename((path as NSString).lastPathComponent) else { continue }
+            let stored: Date? = row["date_taken"]
+            if stored == nil || abs(parsed.date.timeIntervalSince(stored!)) > 3600 {
+                try db.execute(sql: "UPDATE files SET date_taken = ? WHERE path = ?", arguments: [parsed.date, path])
+            }
+        }
+    }
+
+    /// Test support: run the v10 filename-based date repair directly against
+    /// the current DB state, without needing to fake an old user_version.
+    func repairImageDatesFromFilenamesForTesting() throws {
+        try dbQueue.write { db in
+            try Self.repairImageDatesFromFilenames(db)
         }
     }
 
