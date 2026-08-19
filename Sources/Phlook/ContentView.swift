@@ -141,5 +141,31 @@ struct ContentView: View {
             vm.refreshReclaimStatus()
             importer.start()
         }
+        .overlay(alignment: .bottom) {
+            if let toast = vm.albumToast {
+                AlbumToastView(toast: toast, onView: { vm.viewAlbumFromToast() }, onDismiss: { vm.dismissAlbumToast() })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: vm.albumToast)
+    }
+}
+
+private struct AlbumToastView: View {
+    let toast: LibraryViewModel.AlbumToast
+    let onView: () -> Void
+    let onDismiss: () -> Void
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "rectangle.stack.badge.plus")
+            Text("Added to \(toast.name)").lineLimit(1)
+            Button("View album", action: onView).buttonStyle(.borderedProminent).controlSize(.small)
+            Button { onDismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.thinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.secondary.opacity(0.2)))
+        .shadow(radius: 12, y: 4)
+        .padding(.bottom, 24)
     }
 }

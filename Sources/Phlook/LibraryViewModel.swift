@@ -624,6 +624,25 @@ final class LibraryViewModel: ObservableObject {
         albums = (try? service.mediaIndex.albums()) ?? []
     }
 
+    /// Transient confirmation shown after adding item(s) to an album.
+    struct AlbumToast: Equatable { let albumID: Int64; let name: String }
+    @Published var albumToast: AlbumToast?
+    private var albumToastTask: Task<Void, Never>?
+
+    private func showAlbumToast(albumID: Int64, name: String) {
+        albumToast = AlbumToast(albumID: albumID, name: name)
+        albumToastTask?.cancel()
+        albumToastTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { if self?.albumToast?.albumID == albumID { self?.albumToast = nil } }
+        }
+    }
+
+    func dismissAlbumToast() { albumToastTask?.cancel(); albumToast = nil }
+
+    func viewAlbumFromToast() { if let t = albumToast { selectAlbum(t.albumID) }; dismissAlbumToast() }
+
     func selectAlbum(_ id: Int64?) {
         selectedAlbumID = id
         albumMemberCache = id.flatMap { try? service.mediaIndex.albumMemberPaths($0) } ?? []
@@ -636,12 +655,18 @@ final class LibraryViewModel: ObservableObject {
         guard let id = try? service.mediaIndex.createAlbum(name: name) else { return }
         try? service.mediaIndex.addToAlbum(id, paths: items.map(\.path))
         refreshAlbums()
+        if !items.isEmpty, let createdName = albums.first(where: { $0.id == id })?.name {
+            showAlbumToast(albumID: id, name: createdName)
+        }
     }
 
     func addToAlbum(_ id: Int64, _ items: [MediaItem]) {
         try? service.mediaIndex.addToAlbum(id, paths: items.map(\.path))
         refreshAlbums()
         if selectedAlbumID == id { selectAlbum(id) }
+        if !items.isEmpty, let name = albums.first(where: { $0.id == id })?.name {
+            showAlbumToast(albumID: id, name: name)
+        }
     }
 
     func removeFromAlbum(_ id: Int64, _ items: [MediaItem]) {
