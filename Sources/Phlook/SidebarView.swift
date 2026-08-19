@@ -53,6 +53,20 @@ struct SidebarView: View {
                 Section {
                     row(.hidden, symbol: vm.hiddenUnlocked ? "lock.open" : "lock.fill")
                 }
+                Section {
+                    ForEach(vm.albums) { album in
+                        albumRow(album)
+                    }
+                } header: {
+                    HStack {
+                        Text("Albums")
+                        Spacer()
+                        Button { vm.beginNewAlbum(for: []) } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
             .listStyle(.sidebar)
             Divider()
@@ -85,6 +99,33 @@ struct SidebarView: View {
             }
         }
         .tag(scope)
+    }
+
+    /// Albums live outside `LibraryScope`, so each row is its own Button
+    /// (not `row(scope:)`/`.tag`) that drives `vm.selectAlbum` directly and
+    /// highlights manually when it's the active selection.
+    @ViewBuilder
+    private func albumRow(_ album: Album) -> some View {
+        Button {
+            vm.selectAlbum(album.id)
+        } label: {
+            HStack {
+                Label(album.name, systemImage: "rectangle.stack")
+                Spacer()
+                Text("\(album.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            vm.selectedAlbumID == album.id ? Color.accentColor.opacity(0.2) : Color.clear
+        )
+        .contextMenu {
+            Button("Rename…") { vm.renameAlbumTarget = album }
+            Button("Delete", role: .destructive) { vm.deleteAlbum(album.id) }
+        }
     }
 
     /// Hidden's count is withheld until the scope is unlocked (Task 5 sets

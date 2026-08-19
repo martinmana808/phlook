@@ -60,12 +60,31 @@ final class LibraryViewModel: ObservableObject {
             if oldValue == .hidden { hiddenUnlocked = false }
             closeViewer()
             clearSelection()
+            // Picking a normal scope leaves album mode. Set the stored
+            // properties directly (not via selectAlbum) to avoid re-entrant
+            // didSet/rebuild churn.
+            selectedAlbumID = nil
+            albumMemberCache = []
             rebuildVisible()
             timeline = TimelineIndex.compute(items: visibleItems)
             yearBuckets = TimelineIndex.yearBuckets(items: visibleItems)
             fullTimeline = TimelineIndex.compute(items: scopedItems())
         }
     }
+    /// Albums (Part of the Albums feature). `albumMemberCache` is the
+    /// resolved member-path set for `selectedAlbumID`, kept in sync by
+    /// `selectAlbum`/`addToAlbum`/`removeFromAlbum` so `scopedItems()` can do
+    /// a cheap membership check without hitting the DB on every filter pass.
+    @Published var albums: [Album] = []
+    @Published private(set) var selectedAlbumID: Int64? = nil
+    private var albumMemberCache: Set<String> = []
+    /// Items to seed the "New Album" name prompt with; consumed by the UI
+    /// (next task).
+    @Published var newAlbumTarget: [MediaItem]? = nil
+
+    /// Album whose name is being edited via a Rename… prompt; set by the
+    /// sidebar's context menu, consumed by ContentView's rename alert.
+    @Published var renameAlbumTarget: Album? = nil
     @Published var dateRange = DateRangeFilter() {
         didSet {
             guard dateRange != oldValue else { return }
@@ -192,6 +211,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func load() {
+        refreshAlbums()
         let epoch = refreshEpoch
         let service = self.service
         isIndexing = true
@@ -310,6 +330,11 @@ final class LibraryViewModel: ObservableObject {
     /// doesn't) so the date-range sliders' domain never depends on the
     /// sliders' own current position.
     private func scopedItems() -> [MediaItem] {
+        if selectedAlbumID != nil {
+            return items.filter {
+                !livePairs.hiddenVideoPaths.contains($0.path) && !$0.hidden && albumMemberCache.contains($0.path)
+            }
+        }
         guard !(scope == .hidden && !hiddenUnlocked) else { return [] }
         let unhidden = items.filter { !livePairs.hiddenVideoPaths.contains($0.path) }
         return unhidden.filter { scope.matches($0, livePairs: livePairs) }
@@ -593,6 +618,57 @@ final class LibraryViewModel: ObservableObject {
     /// Set (or clear, when `time` is nil) a Live Photo's chosen poster frame
     /// — a time offset into the paired motion file, stored in the DB only.
     /// Never touches the original HEIC/MOV on disk (see `PosterRenderer`).
+    // MARK: - Albums
+
+    func refreshAlbums() {
+        albums = (try? service.mediaIndex.albums()) ?? []
+    }
+
+    func selectAlbum(_ id: Int64?) {
+        selectedAlbumID = id
+        albumMemberCache = id.flatMap { try? service.mediaIndex.albumMemberPaths($0) } ?? []
+        closeViewer()
+        clearSelection()
+        rebuildVisible()
+    }
+
+    func createAlbum(named name: String, andAdd items: [MediaItem]) {
+        guard let id = try? service.mediaIndex.createAlbum(name: name) else { return }
+        try? service.mediaIndex.addToAlbum(id, paths: items.map(\.path))
+        refreshAlbums()
+    }
+
+    func addToAlbum(_ id: Int64, _ items: [MediaItem]) {
+        try? service.mediaIndex.addToAlbum(id, paths: items.map(\.path))
+        refreshAlbums()
+        if selectedAlbumID == id { selectAlbum(id) }
+    }
+
+    func removeFromAlbum(_ id: Int64, _ items: [MediaItem]) {
+        try? service.mediaIndex.removeFromAlbum(id, paths: items.map(\.path))
+        refreshAlbums()
+        if selectedAlbumID == id { selectAlbum(id) }
+    }
+
+    func renameAlbum(_ id: Int64, to name: String) {
+        try? service.mediaIndex.renameAlbum(id: id, to: name)
+        refreshAlbums()
+    }
+
+    func deleteAlbum(_ id: Int64) {
+        if selectedAlbumID == id { selectAlbum(nil) }
+        try? service.mediaIndex.deleteAlbum(id: id)
+        refreshAlbums()
+    }
+
+    func albumIDs(for item: MediaItem) -> [Int64] {
+        (try? service.mediaIndex.albumIDs(forPath: item.path)) ?? []
+    }
+
+    func beginNewAlbum(for items: [MediaItem]) {
+        newAlbumTarget = items
+    }
+
     func setPosterTime(_ item: MediaItem, time: Double?) {
         let path = item.path
         let service = self.service

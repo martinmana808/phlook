@@ -16,6 +16,8 @@ public final class MediaIndex {
 
     private let dbQueue: DatabaseQueue
 
+    var dbForTesting: DatabaseQueue { dbQueue }
+
     public init(dbPath: String) throws {
         dbQueue = try DatabaseQueue(path: dbPath)
         try migrate()
@@ -151,6 +153,27 @@ public final class MediaIndex {
             if version < 10 {
                 try Self.repairImageDatesFromFilenames(db)
                 try db.execute(sql: "PRAGMA user_version = 10")
+            }
+            if version < 11 {
+                try db.execute(sql: """
+                    CREATE TABLE IF NOT EXISTS albums (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(name COLLATE NOCASE)
+                    );
+                """)
+                try db.execute(sql: """
+                    CREATE TABLE IF NOT EXISTS album_items (
+                        album_id INTEGER NOT NULL,
+                        file_path TEXT NOT NULL,
+                        added_at TEXT NOT NULL,
+                        PRIMARY KEY (album_id, file_path),
+                        FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
+                    );
+                """)
+                try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_album_items_path ON album_items(file_path)")
+                try db.execute(sql: "PRAGMA user_version = 11")
             }
         }
     }
@@ -363,6 +386,7 @@ public final class MediaIndex {
                 where !paths.contains(item.path) && item.archivedHash == nil {
                 try item.delete(db)
             }
+            try db.execute(sql: "DELETE FROM album_items WHERE file_path NOT IN (SELECT path FROM files)")
         }
     }
 
@@ -382,6 +406,7 @@ public final class MediaIndex {
                 try db.execute(sql: "DELETE FROM files WHERE path IN (\(placeholders))",
                                arguments: StatementArguments(chunk))
             }
+            try db.execute(sql: "DELETE FROM album_items WHERE file_path NOT IN (SELECT path FROM files)")
         }
     }
 
@@ -518,6 +543,83 @@ public final class MediaIndex {
             let cp = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE archived_hash IS NOT NULL AND small_path IS NOT NULL AND protected = 0") ?? 0
             let fs = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM files WHERE protected = 1") ?? 0
             return CurationCounts(notBackedUp: nb, compressed: cp, fullSize: fs)
+        }
+    }
+
+    public enum AlbumError: Error { case emptyName }
+
+    private static let albumTS = ISO8601DateFormatter()
+
+    public func createAlbum(name: String) throws -> Int64 {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw AlbumError.emptyName }
+        return try dbQueue.write { db in
+            if let id = try Int64.fetchOne(db, sql: "SELECT id FROM albums WHERE name = ? COLLATE NOCASE", arguments: [trimmed]) {
+                return id
+            }
+            try db.execute(sql: "INSERT INTO albums (name, created_at) VALUES (?, ?)",
+                           arguments: [trimmed, Self.albumTS.string(from: Date())])
+            return db.lastInsertedRowID
+        }
+    }
+
+    public func renameAlbum(id: Int64, to name: String) throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw AlbumError.emptyName }
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE albums SET name = ? WHERE id = ?", arguments: [trimmed, id])
+        }
+    }
+
+    public func deleteAlbum(id: Int64) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+            try db.execute(sql: "DELETE FROM album_items WHERE album_id = ?", arguments: [id]) // explicit, in case FK pragma off
+            try db.execute(sql: "DELETE FROM albums WHERE id = ?", arguments: [id])
+        }
+    }
+
+    public func addToAlbum(_ albumID: Int64, paths: [String]) throws {
+        guard !paths.isEmpty else { return }
+        let now = Self.albumTS.string(from: Date())
+        try dbQueue.write { db in
+            for p in paths {
+                try db.execute(sql: "INSERT OR IGNORE INTO album_items (album_id, file_path, added_at) VALUES (?, ?, ?)",
+                               arguments: [albumID, p, now])
+            }
+        }
+    }
+
+    public func removeFromAlbum(_ albumID: Int64, paths: [String]) throws {
+        guard !paths.isEmpty else { return }
+        try dbQueue.write { db in
+            for chunk in stride(from: 0, to: paths.count, by: 500).map({ Array(paths[$0..<min($0+500, paths.count)]) }) {
+                let ph = repeatElement("?", count: chunk.count).joined(separator: ",")
+                try db.execute(sql: "DELETE FROM album_items WHERE album_id = ? AND file_path IN (\(ph))",
+                               arguments: StatementArguments([albumID] + chunk))
+            }
+        }
+    }
+
+    public func albums() throws -> [Album] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT a.id, a.name, COUNT(ai.file_path) AS c
+                FROM albums a LEFT JOIN album_items ai ON ai.album_id = a.id
+                GROUP BY a.id ORDER BY a.name COLLATE NOCASE
+                """).map { Album(id: $0["id"], name: $0["name"], count: $0["c"]) }
+        }
+    }
+
+    public func albumMemberPaths(_ albumID: Int64) throws -> Set<String> {
+        try dbQueue.read { db in
+            Set(try String.fetchAll(db, sql: "SELECT file_path FROM album_items WHERE album_id = ?", arguments: [albumID]))
+        }
+    }
+
+    public func albumIDs(forPath path: String) throws -> [Int64] {
+        try dbQueue.read { db in
+            try Int64.fetchAll(db, sql: "SELECT album_id FROM album_items WHERE file_path = ? ORDER BY album_id", arguments: [path])
         }
     }
 }
