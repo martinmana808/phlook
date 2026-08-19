@@ -34,6 +34,20 @@ struct SidebarView: View {
                     row(.videos, symbol: "video")
                     row(.live, symbol: "livephoto")
                 }
+                Section {
+                    ForEach(vm.albums) { album in
+                        albumRow(album)
+                    }
+                } header: {
+                    HStack {
+                        Text("Albums")
+                        Spacer()
+                        Button { vm.beginNewAlbum(for: []) } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 Section("Kinds") {
                     row(.screenshots, symbol: "camera.viewfinder")
                     row(.selfies, symbol: "person.crop.square")
@@ -52,20 +66,6 @@ struct SidebarView: View {
                 }
                 Section {
                     row(.hidden, symbol: vm.hiddenUnlocked ? "lock.open" : "lock.fill")
-                }
-                Section {
-                    ForEach(vm.albums) { album in
-                        albumRow(album)
-                    }
-                } header: {
-                    HStack {
-                        Text("Albums")
-                        Spacer()
-                        Button { vm.beginNewAlbum(for: []) } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.plain)
-                    }
                 }
             }
             .listStyle(.sidebar)
