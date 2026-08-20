@@ -48,76 +48,86 @@ public final class ArchiveService {
                 report.failures.append("archive drive disconnected — stopped")
                 break
             }
-            let original = URL(fileURLWithPath: item.path)
-            let name = original.lastPathComponent
-            guard fm.fileExists(atPath: original.path) else { continue }   // already reclaimed elsewhere
+            // Each file's work runs in its own autoreleasepool: the per-file path
+            // creates temporary AVFoundation (AVURLAsset), ImageIO (CGImageSource/
+            // Destination) and Foundation (FileHandle/Data) objects that are
+            // autoreleased. Without draining the pool every iteration, a long run
+            // accumulates them all and exhausts memory (observed: a ~1,500-file run
+            // filled swap and triggered a watchdog reboot). The former `continue`
+            // statements become `return` (skip the rest of THIS file); the outer
+            // `break`s (cancel / drive-disconnected) stay outside the pool.
+            autoreleasepool {
+                let original = URL(fileURLWithPath: item.path)
+                let name = original.lastPathComponent
+                guard fm.fileExists(atPath: original.path) else { return }   // already reclaimed elsewhere
 
-            // 1. hash the master
-            guard let h = FileHasher.sha256(of: original) else {
-                report.failures.append("\(name) — could not read original"); continue
-            }
-
-            let dest = target.phlookRoot.appendingPathComponent(name)
-            var archivedThisFile = item.archivedHash != nil
-
-            if !archivedThisFile {
-                do {
-                    try fm.createDirectory(at: target.phlookRoot, withIntermediateDirectories: true)
-                    if fm.fileExists(atPath: dest.path) {
-                        // A file already occupies the FINAL destination name.
-                        guard let destHash = FileHasher.sha256(of: dest) else {
-                            report.failures.append("\(name) — could not read existing SSD file"); continue
-                        }
-                        if destHash == h {
-                            // Identical bytes already archived (idempotent resume).
-                        } else {
-                            report.skippedCollisions.append(name); continue
-                        }
-                    } else {
-                        // Copy to a temp partial, verify the read-back, then move atomically.
-                        // A crash leaves the ".phlook-partial" file (not the real name), so it is
-                        // never mistaken for a genuine collision and is cleared on the next run.
-                        let tmp = target.phlookRoot.appendingPathComponent(name + ".phlook-partial")
-                        try? fm.removeItem(at: tmp)               // clear any stale partial from a prior crash
-                        try copyFile(original, tmp)
-                        guard FileHasher.sha256(of: tmp) == h else {
-                            try? fm.removeItem(at: tmp)
-                            report.failures.append("\(name) — SSD copy failed verification"); continue
-                        }
-                        try fm.moveItem(at: tmp, to: dest)
-                    }
-                    // dest now holds verified-correct bytes. If markArchived throws here, dest is
-                    // KEPT (archivedHash stays nil); the next run resumes via the identical-hash path.
-                    try index.markArchived(path: item.path, hash: h, at: Date())
-                    archivedThisFile = true
-                    report.archived += 1
-                } catch {
-                    report.failures.append("\(name) — archive error: \(error.localizedDescription)"); continue
+                // 1. hash the master
+                guard let h = FileHasher.sha256(of: original) else {
+                    report.failures.append("\(name) — could not read original"); return
                 }
-            } else {
-                report.archived += 1
-            }
 
-            // Protected items are backed up but kept full-res: never shrunk or reclaimed.
-            if item.protected { continue }
+                let dest = target.phlookRoot.appendingPathComponent(name)
+                var archivedThisFile = item.archivedHash != nil
 
-            // 6. shrink
-            let smallURL: URL
-            do {
-                smallURL = try encoder.makeSmallVersion(from: original, fileType: item.fileType, into: proxyDir)
-                try index.setSmallPath(path: item.path, smallPath: smallURL.path)
-                report.shrunk += 1
-            } catch {
-                report.failures.append("\(name) — shrink failed: \(error.localizedDescription)")
-                continue   // original KEPT — invariant holds
-            }
+                if !archivedThisFile {
+                    do {
+                        try fm.createDirectory(at: target.phlookRoot, withIntermediateDirectories: true)
+                        if fm.fileExists(atPath: dest.path) {
+                            // A file already occupies the FINAL destination name.
+                            guard let destHash = FileHasher.sha256(of: dest) else {
+                                report.failures.append("\(name) — could not read existing SSD file"); return
+                            }
+                            if destHash == h {
+                                // Identical bytes already archived (idempotent resume).
+                            } else {
+                                report.skippedCollisions.append(name); return
+                            }
+                        } else {
+                            // Copy to a temp partial, verify the read-back, then move atomically.
+                            // A crash leaves the ".phlook-partial" file (not the real name), so it is
+                            // never mistaken for a genuine collision and is cleared on the next run.
+                            let tmp = target.phlookRoot.appendingPathComponent(name + ".phlook-partial")
+                            try? fm.removeItem(at: tmp)               // clear any stale partial from a prior crash
+                            try copyFile(original, tmp)
+                            guard FileHasher.sha256(of: tmp) == h else {
+                                try? fm.removeItem(at: tmp)
+                                report.failures.append("\(name) — SSD copy failed verification"); return
+                            }
+                            try fm.moveItem(at: tmp, to: dest)
+                        }
+                        // dest now holds verified-correct bytes. If markArchived throws here, dest is
+                        // KEPT (archivedHash stays nil); the next run resumes via the identical-hash path.
+                        try index.markArchived(path: item.path, hash: h, at: Date())
+                        archivedThisFile = true
+                        report.archived += 1
+                    } catch {
+                        report.failures.append("\(name) — archive error: \(error.localizedDescription)"); return
+                    }
+                } else {
+                    report.archived += 1
+                }
 
-            // 7. reclaim local original (row survives)
-            let outcome = LibraryTrasher.trashFilesOnly(paths: [item.path])
-            if outcome.failures.isEmpty {
-                report.reclaimed += 1
-            } else {
-                report.failures.append(contentsOf: outcome.failures)
+                // Protected items are backed up but kept full-res: never shrunk or reclaimed.
+                if item.protected { return }
+
+                // 6. shrink
+                let smallURL: URL
+                do {
+                    smallURL = try encoder.makeSmallVersion(from: original, fileType: item.fileType, into: proxyDir)
+                    try index.setSmallPath(path: item.path, smallPath: smallURL.path)
+                    report.shrunk += 1
+                } catch {
+                    report.failures.append("\(name) — shrink failed: \(error.localizedDescription)")
+                    return   // original KEPT — invariant holds
+                }
+
+                // 7. reclaim local original (row survives)
+                let outcome = LibraryTrasher.trashFilesOnly(paths: [item.path])
+                if outcome.failures.isEmpty {
+                    report.reclaimed += 1
+                } else {
+                    report.failures.append(contentsOf: outcome.failures)
+                }
             }
         }
         return report
