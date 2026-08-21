@@ -13,6 +13,7 @@ struct DetailsRows: View {
             if let dur = details.duration { row("Duration", dur) }
             if let size = details.fileSize { row("Size", size) }
             row("Kind", motionPath != nil ? "Live Photo (\(liveKindSuffix))" : details.kind)
+            row("Storage", details.storage)
             if let motionPath {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Live Photo motion").font(.caption).foregroundStyle(.secondary)

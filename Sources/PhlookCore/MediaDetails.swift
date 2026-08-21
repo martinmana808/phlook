@@ -9,6 +9,7 @@ public struct MediaDetails: Equatable {
     public let fileSize: String?    // "2.4 MB"; nil when the file is missing
     public let kind: String         // "HEIC image", "QuickTime movie", …
     public let path: String
+    public let storage: String      // "Compressed (10% local · master on SSD)", "Full size (kept local)", "Not backed up", …
 
     static let kindByExtension: [String: String] = [
         "jpg": "JPEG image", "jpeg": "JPEG image", "heic": "HEIC image",
@@ -31,13 +32,26 @@ public struct MediaDetails: Equatable {
         let kind = kindByExtension[ext]
             ?? "\(ext.uppercased()) \(item.fileType == "video" ? "movie" : "image")"
 
+        // Size of the file that actually exists locally: the 10% proxy for a
+        // reclaimed item, otherwise the original.
         var sizeText: String?
-        if let bytes = (try? FileManager.default.attributesOfItem(atPath: item.path))?[.size] as? Int64 {
+        if let bytes = (try? FileManager.default.attributesOfItem(atPath: item.bestLocalURL().path))?[.size] as? Int64 {
             sizeText = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
         }
 
         var dims: String?
         if let w = item.width, let h = item.height { dims = "\(w) × \(h)" }
+
+        let storage: String
+        if item.protected {
+            storage = "Full size (kept local)"
+        } else if item.archivedHash == nil {
+            storage = "Not backed up"
+        } else if item.smallPath != nil {
+            storage = "Compressed (10% local · master on SSD)"
+        } else {
+            storage = "Backed up on SSD"
+        }
 
         return MediaDetails(
             filename: url.lastPathComponent,
@@ -46,7 +60,8 @@ public struct MediaDetails: Equatable {
             duration: item.fileType == "video" ? DurationFormatter.string(seconds: item.duration) : nil,
             fileSize: sizeText,
             kind: kind,
-            path: item.path
+            path: item.path,
+            storage: storage
         )
     }
 }

@@ -70,16 +70,11 @@ struct ThumbCell: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            // "10%" / "Full" storage badges — mutually exclusive (compressed
-            // items are never protected; see `isCompressed`).
-            if vm.isCompressed(item) {
-                Text("10%")
-                    .font(.caption2.bold())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(.black.opacity(0.6), in: Capsule())
-                    .padding(3)
-            } else if item.protected {
+            // Compression is the default (nearly every item is a 10% version),
+            // so a "10%" badge would just be noise on the whole grid. Badge only
+            // the exception — full-resolution (protected) items. The compressed/
+            // full status is shown in the Details view instead.
+            if item.protected {
                 Text("Full")
                     .font(.caption2.bold())
                     .foregroundStyle(.white)
