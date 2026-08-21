@@ -75,7 +75,7 @@ final class PhoneImportController: NSObject, ObservableObject {
 
     init(service: IndexingService,
          staging: URL = FileManager.default.homeDirectoryForCurrentUser
-             .appendingPathComponent("Pictures/PHLOOK_staging")) {
+             .appendingPathComponent("Pictures/Phlook Library/Staging")) {
         self.service = service
         self.staging = staging
         self.logURL = staging.appendingPathComponent(".phlook-import.log")

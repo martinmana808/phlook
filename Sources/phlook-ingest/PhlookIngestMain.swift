@@ -8,10 +8,10 @@ struct PhlookIngestCLI {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let staging = args.count > 1
             ? URL(fileURLWithPath: (args[1] as NSString).expandingTildeInPath)
-            : home.appendingPathComponent("Pictures/PHLOOK_staging")
+            : home.appendingPathComponent("Pictures/Phlook Library/Staging")
         let library = args.count > 2
             ? URL(fileURLWithPath: (args[2] as NSString).expandingTildeInPath)
-            : home.appendingPathComponent("Pictures/PHLOOK")
+            : home.appendingPathComponent("Pictures/Phlook Library/Full")
 
         print("phlook-ingest: \(staging.path) → \(library.path)")
         do {

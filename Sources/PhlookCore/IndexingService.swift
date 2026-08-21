@@ -115,7 +115,7 @@ public final class IndexingService {
     public enum ArchiveError: Error { case noSSD }
 
     public var proxyRoot: URL {
-        root.deletingLastPathComponent().appendingPathComponent("PHLOOK_proxy")
+        root.deletingLastPathComponent().appendingPathComponent("Proxy")
     }
 
     public func setUpArchiveDrive(volumeRoot: URL) throws -> ArchiveTarget {

@@ -316,7 +316,7 @@ struct MicroGridView: View {
                     Text("Indexing your library…")
                         .foregroundStyle(.secondary)
                 } else if vm.items.isEmpty {
-                    Text("No media found in ~/Pictures/PHLOOK")
+                    Text("No media found in ~/Pictures/Phlook Library/Full")
                         .foregroundStyle(.secondary)
                 } else {
                     Text(emptyStateText)

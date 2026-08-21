@@ -159,7 +159,7 @@ final class LibraryViewModel: ObservableObject {
 
     init() {
         let root = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Pictures/PHLOOK")
+            .appendingPathComponent("Pictures/Phlook Library/Full")
         service = IndexingService(root: root)
     }
 
