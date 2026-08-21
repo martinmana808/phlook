@@ -12,6 +12,7 @@ struct ThumbCell: View {
     let isLive: Bool
     let side: CGFloat
     @State private var image: NSImage?
+    @State private var isHovering = false
     @ObservedObject private var hover = HoverPreviewCoordinator.shared
 
     var body: some View {
@@ -70,19 +71,20 @@ struct ThumbCell: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            // Compression is the default (nearly every item is a 10% version),
-            // so a "10%" badge would just be noise on the whole grid. Badge only
-            // the exception — full-resolution (protected) items. The compressed/
-            // full status is shown in the Details view instead.
-            if item.protected {
-                Text("Full")
-                    .font(.caption2.bold())
+            // Compression is the default, so we badge only the exception —
+            // full-resolution (protected) items — and only on hover, in a
+            // distinct accent style so it never reads like the duration pill.
+            if item.protected && isHovering {
+                Label("Full", systemImage: "lock.fill")
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(.black.opacity(0.6), in: Capsule())
-                    .padding(3)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.accentColor, in: Capsule())
+                    .padding(4)
+                    .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.12), value: isHovering)
         .overlay {
             if isSelected {
                 Rectangle().strokeBorder(Color.accentColor, lineWidth: 3)
@@ -104,6 +106,7 @@ struct ThumbCell: View {
             NSItemProvider(contentsOf: URL(fileURLWithPath: item.path)) ?? NSItemProvider()
         }
         .onHover { inside in
+            isHovering = inside   // drives the hover-only "Full" badge (all item types)
             guard item.fileType == "video", !isLive,
                   let d = item.duration, d > 0 else { return }
             if inside { hover.hoverBegan(path: item.path, loadURL: item.bestLocalURL()) }
